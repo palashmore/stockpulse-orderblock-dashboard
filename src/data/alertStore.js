@@ -1,4 +1,4 @@
-import { ALERT_TYPES, ALERT_STATUSES, MAX_ALERTS } from './alerts';
+import { ALERT_TYPES, ALERT_STATUSES, MAX_ALERTS } from './alerts.js';
 
 export const STORAGE_KEY = 'stockpulse.alerts.v1';
 

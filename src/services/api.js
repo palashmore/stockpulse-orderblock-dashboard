@@ -178,3 +178,31 @@ function mergeQuoteParts(parts) {
 export async function fetchDepths(symbols) {
   return await apiFetch(`/depth?symbols=${symbols.map(encodeURIComponent).join(',')}`);
 }
+
+// Server-side alerts (loopback-only on the server). Every call resolves { ok, status, body } where body is the
+// parsed response (or { error } when the server could not be reached), so callers can tell "not available here"
+// (403) from "request refused" (400) from "server down".
+async function alertsRequest(method, path, payload) {
+  try {
+    const response = await fetch(`${API_BASE}/alerts${path}`, {
+      method,
+      cache: 'no-store',
+      headers: payload === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: payload === undefined ? undefined : JSON.stringify(payload),
+      signal: AbortSignal.timeout(20000),
+    });
+    const body = await response.json().catch(() => ({}));
+    return { ok: response.ok, status: response.status, body };
+  } catch {
+    return { ok: false, status: 0, body: { error: 'Could not reach the server' } };
+  }
+}
+
+export const fetchServerAlerts = () => alertsRequest('GET', '');
+export const createServerAlert = (input) => alertsRequest('POST', '', input);
+export const deleteServerAlert = (id) => alertsRequest('DELETE', `/${encodeURIComponent(id)}`);
+export const pauseServerAlert = (id) => alertsRequest('POST', `/${encodeURIComponent(id)}/pause`);
+export const activateServerAlert = (id) => alertsRequest('POST', `/${encodeURIComponent(id)}/activate`);
+export const importServerAlerts = (alerts) => alertsRequest('POST', '/import', { alerts });
+export const checkServerAlertsNow = () => alertsRequest('POST', '/check');
+export const testAlertNotification = () => alertsRequest('POST', '/test-notification');

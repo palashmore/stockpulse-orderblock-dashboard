@@ -45,6 +45,15 @@ By default quotes and charts come from Yahoo Finance and are labeled `DELAYED` (
 
 Signed in, quotes and 1m / 5m / 30m / daily charts for mapped Nifty 50 stocks come from Breeze and are labeled `LIVE` only while the market is open and the exchange's last-trade time is under two minutes old. Anything else falls back to Yahoo. The integration is read-only (no orders). The Breeze request formats follow ICICI's published documentation and are tested with mocked responses; verify against your account.
 
+### Price alerts that keep running with the browser closed
+Alerts created on the **Alerts** screen are saved by the server (default `data/alerts.json`, git-ignored) and checked about once a minute while the market is open, so they work with the page closed as long as the server process is running (`npm run dev:all` or `npm run server`).
+
+* Only `LIVE` or `DELAYED` prices are used. Stale, closed-market, historical or simulated data never fires an alert, and nothing is checked while the market is closed.
+* An alert fires once and is saved as triggered *before* any notification is sent, so a failed notification never causes a repeat. A gap between two checks (for example after a restart) counts as a crossing.
+* Alerts previously saved in the browser can be moved to the server from the Alerts screen. If the server's alert service is unreachable (for example the page is opened from a phone), the screen falls back to browser-only alerts that run while the tab is open, and says so.
+* Optional push to your phone through [ntfy](https://ntfy.sh) (free): set `NTFY_TOPIC` in `.env` (see `.env.example`), subscribe to the same topic in the ntfy app, and use **Send test** on the Alerts screen. The alert text is sent to that topic, so use a long random name.
+* The alert endpoints answer only on the machine running the server, like the other personal endpoints. Alerts never place orders.
+
 ---
 
 ## 🚀 Quick Start Guide

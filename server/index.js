@@ -1,7 +1,10 @@
 import { createApp } from './app.js';
+import { createFileAlertStore, createNotifier } from './alertEngine.js';
 
 const PORT = process.env.PORT || 3001;
-const { app, refreshNSECookies } = createApp();
+const ALERTS_FILE = process.env.ALERTS_FILE || 'data/alerts.json';
+const notifier = createNotifier(process.env);
+const { app, refreshNSECookies, alerts } = createApp({ alertStore: createFileAlertStore(ALERTS_FILE), alertNotifier: notifier });
 
 const server = app.listen(PORT, () => {
   console.log(`\n  🚀 StockPulse API Server running at http://localhost:${PORT}`);
@@ -11,12 +14,19 @@ const server = app.listen(PORT, () => {
   console.log(`     GET /api/options/:symbol   - Options chain & OI data (NSE)`);
   console.log(`     GET /api/nifty50           - All Nifty 50 quotes`);
   console.log(`     GET /api/search?q=query    - Search stocks`);
-  console.log(`     GET /api/market-status     - Market open/close status\n`);
+  console.log(`     GET /api/market-status     - Market open/close status`);
+  console.log(`     /api/alerts                - Price alerts checked by this server (saved in ${ALERTS_FILE})\n`);
+  if (notifier.error) console.warn(`  ⚠ Push notifications are off: ${notifier.error}`);
+  else if (notifier.channel === 'ntfy') console.log('  🔔 Push notifications: ntfy');
 
   // Pre-warm NSE cookies
   refreshNSECookies();
+  alerts.start();
 });
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => server.close(() => process.exit(0)));
+  process.on(signal, () => {
+    alerts.stop();
+    server.close(() => process.exit(0));
+  });
 }

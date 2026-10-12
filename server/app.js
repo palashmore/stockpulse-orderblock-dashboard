@@ -22,6 +22,7 @@ import { istDateKey } from './marketCalendar.js';
 import { INDEX_DEFS, INDEX_BASE, indexDef, parseIndexCsv, MAX_SYMBOLS_PER_REQUEST } from './indices.js';
 import { BREEZE_STOCK_CODES } from './breezeCodes.js';
 import { createStreamHub, quoteKey } from './breezeStream.js';
+import { createAlertEngine, createMemoryAlertStore } from './alertEngine.js';
 import { parseNseHolidays, getMarketState, markPartialCandles } from './marketCalendar.js';
 import { createRateLimiter, createConcurrencyLimiter } from './limits.js';
 import {
@@ -109,6 +110,9 @@ export function createApp({
   streamHub = createStreamHub({ now }),
   autoLoadMaster = rawFetch === globalThis.fetch || Boolean(loadMaster),
   breeze = createBreezeClient({ appKey: process.env.BREEZE_API_KEY, secret: process.env.BREEZE_API_SECRET }),
+  alertStore = createMemoryAlertStore(), // server/index.js passes a file-backed store
+  alertNotifier = null,
+  alertIntervalMs = 60_000, // how often the server checks alerts once alerts.start() is called
 } = {}) {
   const app = express();
   // At most `upstreamConcurrency` provider requests in flight; the rest queue.
@@ -222,10 +226,15 @@ export function createApp({
     return res.json({ ...entry.body, ...meta });
   }
 
-  async function serve(res, label, { key, policy, load }) {
+  /**
+   * Fresh cache entry, else a provider load (shared between concurrent callers), else a stale copy.
+   * Resolves { entry, staleAgeMs } (staleAgeMs is null unless the entry is a stale fallback) and
+   * throws when nothing usable exists. Used by the HTTP routes and by the server-side alert checker.
+   */
+  async function resolve(label, { key, policy, load }) {
     await ensureHolidays();
     const fresh = cache.getFresh(key, policy.ttl);
-    if (fresh) return respond(res, fresh);
+    if (fresh) return { entry: fresh, staleAgeMs: null };
 
     try {
       let pending = inFlight.get(key);
@@ -235,15 +244,25 @@ export function createApp({
       }
       const entry = await pending;
       cache.set(key, entry);
-      return respond(res, entry);
+      return { entry, staleAgeMs: null };
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      console.error(`${label} error:`, error.message);
+      recordError(label, error.message);
+      const stale = cache.getStale(key, policy.maxStale);
+      if (stale) return { entry: stale.entry, staleAgeMs: stale.ageMs };
+      throw error;
+    }
+  }
+
+  async function serve(res, label, options) {
+    try {
+      const { entry, staleAgeMs } = await resolve(label, options);
+      return respond(res, entry, staleAgeMs);
     } catch (error) {
       if (error instanceof HttpError) {
         return res.status(error.status).json({ error: error.message, dataStatus: DATA_STATUS.UNAVAILABLE });
       }
-      console.error(`${label} error:`, error.message);
-      recordError(label, error.message);
-      const stale = cache.getStale(key, policy.maxStale);
-      if (stale) return respond(res, stale.entry, stale.ageMs);
       return res.status(503).json({
         error: `${label} unavailable`,
         message: error.message,
@@ -415,6 +434,135 @@ export function createApp({
     }
   }
 
+  /** Quote for one NSE symbol: the broker when signed in, otherwise Yahoo. Cache entry shape. */
+  async function loadQuote(symbol) {
+    const yahooSymbol = symbol.includes('.') ? symbol : `${symbol}.NS`;
+    const viaBroker = await brokerQuote(symbol);
+    if (viaBroker) return viaBroker;
+    const data = await yahooQuotes(encodeURIComponent(yahooSymbol));
+
+    const quote = data.quoteResponse?.result?.[0];
+    if (!quote) throw new HttpError(404, 'Stock not found');
+    if (!Number.isFinite(quote.regularMarketPrice)) throw new Error('Malformed quote response');
+
+    const quoteTimeMs = Number.isFinite(quote.regularMarketTime) ? quote.regularMarketTime * 1000 : null;
+    const nowMs = now();
+    return {
+      body: {
+        symbol: symbol.replace('.NS', ''),
+        name: quote.longName || quote.shortName || symbol,
+        price: quote.regularMarketPrice,
+        previousClose: quote.regularMarketPreviousClose,
+        open: quote.regularMarketOpen,
+        high: quote.regularMarketDayHigh,
+        low: quote.regularMarketDayLow,
+        close: quote.regularMarketPrice,
+        change: quote.regularMarketChange,
+        changePct: quote.regularMarketChangePercent,
+        volume: quote.regularMarketVolume,
+        avgVolume: quote.averageDailyVolume3Month,
+        marketCap: quote.marketCap,
+        fiftyTwoWeekHigh: quote.fiftyTwoWeekHigh,
+        fiftyTwoWeekLow: quote.fiftyTwoWeekLow,
+        pe: quote.trailingPE,
+        eps: quote.epsTrailingTwelveMonths,
+        dividend: quote.dividendYield,
+        sector: quote.sector || '',
+        industry: quote.industry || '',
+        exchange: quote.exchange,
+        marketState: quote.marketState, // PRE, REGULAR, POST, CLOSED
+        timestamp: quote.regularMarketTime,
+        currency: quote.currency || 'INR',
+      },
+      status: classifyQuoteStatus({ marketState: quote.marketState, quoteTimeMs, nowMs, market: marketAt(nowMs) }),
+      provider: 'Yahoo Finance',
+      fetchedAt: new Date(nowMs).toISOString(),
+      asOf: quoteTimeMs === null ? null : new Date(quoteTimeMs).toISOString(),
+    };
+  }
+
+  /** Yahoo quotes for sorted, validated symbols (chunks of 50). Cache entry shape. */
+  async function loadQuotesBatch(symbols) {
+    const results = [];
+    for (let i = 0; i < symbols.length; i += 50) {
+      const chunk = symbols.slice(i, i + 50).map((s) => encodeURIComponent(`${s}.NS`)).join(',');
+      const data = await yahooQuotes(chunk);
+      results.push(...(data.quoteResponse?.result || []));
+    }
+    const valid = results.filter((q) => Number.isFinite(q.regularMarketPrice));
+    if (valid.length === 0) throw new Error('No valid quotes in provider response');
+    const quotes = valid.map((q) => ({
+      symbol: (q.symbol || '').replace('.NS', ''),
+      name: q.longName || q.shortName || q.symbol,
+      price: q.regularMarketPrice,
+      change: q.regularMarketChange,
+      changePct: q.regularMarketChangePercent,
+      volume: q.regularMarketVolume,
+      avgVolume: q.averageDailyVolume3Month,
+      open: q.regularMarketOpen,
+      high: q.regularMarketDayHigh,
+      low: q.regularMarketDayLow,
+      previousClose: q.regularMarketPreviousClose,
+      marketCap: q.marketCap,
+      marketState: q.marketState,
+    }));
+    const have = new Set(quotes.map((q) => q.symbol));
+    const times = valid.map((q) => q.regularMarketTime).filter(Number.isFinite);
+    const quoteTimeMs = times.length ? Math.max(...times) * 1000 : null;
+    const nowMs = now();
+    return {
+      body: { quotes, missing: symbols.filter((s) => !have.has(s)) },
+      status: classifyQuoteStatus({ marketState: valid[0].marketState, quoteTimeMs, nowMs, market: marketAt(nowMs) }),
+      provider: 'Yahoo Finance',
+      fetchedAt: new Date(nowMs).toISOString(),
+      asOf: quoteTimeMs === null ? null : new Date(quoteTimeMs).toISOString(),
+    };
+  }
+
+  // ============ SERVER-SIDE ALERTS ============
+  // Quotes for the alert checker. Broker-connected symbols use the same path as /api/quote (so the live
+  // feed is preferred and caches are shared); the rest go to Yahoo in batches. Each quote keeps its own
+  // status, and a stale cache fallback is labelled STALE, which the checker refuses to evaluate.
+  const ALERT_BROKER_MAX = 25; // leaves most of Breeze's request budget for the screens
+  async function alertQuotes(symbols) {
+    const out = [];
+    let lastError = null;
+    const labelled = ({ entry, staleAgeMs }, symbol, price) => ({
+      symbol, price, status: staleAgeMs === null ? entry.status : DATA_STATUS.STALE, provider: entry.provider, asOf: entry.asOf,
+    });
+    const viaBroker = breeze.isConnected() ? symbols.filter((s) => codeFor(s)).slice(0, ALERT_BROKER_MAX) : [];
+    for (const symbol of viaBroker) {
+      try {
+        const r = await resolve('Quote', { key: `quote_${symbol}.NS`, policy: POLICY.quote, load: () => loadQuote(symbol) });
+        out.push(labelled(r, symbol, r.entry.body.price));
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    const rest = symbols.filter((s) => !viaBroker.includes(s)).sort();
+    for (let i = 0; i < rest.length; i += MAX_SYMBOLS_PER_REQUEST) {
+      const chunk = rest.slice(i, i + MAX_SYMBOLS_PER_REQUEST);
+      try {
+        const r = await resolve('Quotes', { key: `quotes_${chunk.join(',')}`, policy: POLICY.quotesBatch, load: () => loadQuotesBatch(chunk) });
+        for (const q of r.entry.body.quotes) out.push(labelled(r, q.symbol, q.price));
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (out.length === 0 && lastError) throw lastError;
+    return out;
+  }
+
+  const alerts = createAlertEngine({
+    store: alertStore,
+    getQuotes: alertQuotes,
+    marketOpen: async () => { await ensureHolidays(); return marketAt(now()).isOpen; },
+    isValidSymbol,
+    notifier: alertNotifier,
+    now,
+    intervalMs: alertIntervalMs,
+  });
+
   // ============ ROUTES ============
 
   app.get('/api/health', (req, res) => {
@@ -490,50 +638,7 @@ export function createApp({
     await serve(res, 'Quote', {
       key: `quote_${yahooSymbol}`,
       policy: POLICY.quote,
-      load: async () => {
-        const viaBroker = await brokerQuote(symbol);
-        if (viaBroker) return viaBroker;
-        const data = await yahooQuotes(encodeURIComponent(yahooSymbol));
-
-        const quote = data.quoteResponse?.result?.[0];
-        if (!quote) throw new HttpError(404, 'Stock not found');
-        if (!Number.isFinite(quote.regularMarketPrice)) throw new Error('Malformed quote response');
-
-        const quoteTimeMs = Number.isFinite(quote.regularMarketTime) ? quote.regularMarketTime * 1000 : null;
-        const nowMs = now();
-        return {
-          body: {
-            symbol: symbol.replace('.NS', ''),
-            name: quote.longName || quote.shortName || symbol,
-            price: quote.regularMarketPrice,
-            previousClose: quote.regularMarketPreviousClose,
-            open: quote.regularMarketOpen,
-            high: quote.regularMarketDayHigh,
-            low: quote.regularMarketDayLow,
-            close: quote.regularMarketPrice,
-            change: quote.regularMarketChange,
-            changePct: quote.regularMarketChangePercent,
-            volume: quote.regularMarketVolume,
-            avgVolume: quote.averageDailyVolume3Month,
-            marketCap: quote.marketCap,
-            fiftyTwoWeekHigh: quote.fiftyTwoWeekHigh,
-            fiftyTwoWeekLow: quote.fiftyTwoWeekLow,
-            pe: quote.trailingPE,
-            eps: quote.epsTrailingTwelveMonths,
-            dividend: quote.dividendYield,
-            sector: quote.sector || '',
-            industry: quote.industry || '',
-            exchange: quote.exchange,
-            marketState: quote.marketState, // PRE, REGULAR, POST, CLOSED
-            timestamp: quote.regularMarketTime,
-            currency: quote.currency || 'INR',
-          },
-          status: classifyQuoteStatus({ marketState: quote.marketState, quoteTimeMs, nowMs, market: marketAt(nowMs) }),
-          provider: 'Yahoo Finance',
-          fetchedAt: new Date(nowMs).toISOString(),
-          asOf: quoteTimeMs === null ? null : new Date(quoteTimeMs).toISOString(),
-        };
-      },
+      load: () => loadQuote(symbol),
     });
   });
 
@@ -1024,43 +1129,48 @@ export function createApp({
     await serve(res, 'Quotes', {
       key: `quotes_${symbols.join(',')}`,
       policy: POLICY.quotesBatch,
-      load: async () => {
-        const results = [];
-        for (let i = 0; i < symbols.length; i += 50) {
-          const chunk = symbols.slice(i, i + 50).map((s) => encodeURIComponent(`${s}.NS`)).join(',');
-          const data = await yahooQuotes(chunk);
-          results.push(...(data.quoteResponse?.result || []));
-        }
-        const valid = results.filter((q) => Number.isFinite(q.regularMarketPrice));
-        if (valid.length === 0) throw new Error('No valid quotes in provider response');
-        const quotes = valid.map((q) => ({
-          symbol: (q.symbol || '').replace('.NS', ''),
-          name: q.longName || q.shortName || q.symbol,
-          price: q.regularMarketPrice,
-          change: q.regularMarketChange,
-          changePct: q.regularMarketChangePercent,
-          volume: q.regularMarketVolume,
-          avgVolume: q.averageDailyVolume3Month,
-          open: q.regularMarketOpen,
-          high: q.regularMarketDayHigh,
-          low: q.regularMarketDayLow,
-          previousClose: q.regularMarketPreviousClose,
-          marketCap: q.marketCap,
-          marketState: q.marketState,
-        }));
-        const have = new Set(quotes.map((q) => q.symbol));
-        const times = valid.map((q) => q.regularMarketTime).filter(Number.isFinite);
-        const quoteTimeMs = times.length ? Math.max(...times) * 1000 : null;
-        const nowMs = now();
-        return {
-          body: { quotes, missing: symbols.filter((s) => !have.has(s)) },
-          status: classifyQuoteStatus({ marketState: valid[0].marketState, quoteTimeMs, nowMs, market: marketAt(nowMs) }),
-          provider: 'Yahoo Finance',
-          fetchedAt: new Date(nowMs).toISOString(),
-          asOf: quoteTimeMs === null ? null : new Date(quoteTimeMs).toISOString(),
-        };
-      },
+      load: () => loadQuotesBatch(symbols),
     });
+  });
+
+  // ---- server-side alerts (this machine only: they are personal and can notify an external channel)
+  const alertsView = () => ({ alerts: alerts.list(), events: alerts.events(), engine: alerts.status() });
+
+  app.get('/api/alerts', localOnly, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(alertsView());
+  });
+
+  app.post('/api/alerts', localOnly, async (req, res) => {
+    const result = await alerts.add({ symbol: req.body?.symbol, type: req.body?.type, threshold: req.body?.threshold });
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.status(201).json({ alert: result.alert });
+  });
+
+  app.post('/api/alerts/import', localOnly, (req, res) => {
+    res.json(alerts.importAlerts(req.body?.alerts));
+  });
+
+  app.post('/api/alerts/check', localOnly, async (req, res) => {
+    const result = await alerts.check();
+    res.json({ outcome: result.outcome, detail: result.detail, fired: result.fired, ...alertsView() });
+  });
+
+  app.post('/api/alerts/test-notification', localOnly, async (req, res) => {
+    const result = await alerts.sendTest();
+    res.status(result.ok ? 200 : 400).json(result);
+  });
+
+  for (const [action, run] of [['pause', (id) => alerts.pause(id)], ['activate', (id) => alerts.activate(id)]]) {
+    app.post(`/api/alerts/:id/${action}`, localOnly, (req, res) => {
+      if (!run(req.params.id)) return res.status(404).json({ error: 'Alert not found' });
+      res.json(alertsView());
+    });
+  }
+
+  app.delete('/api/alerts/:id', localOnly, (req, res) => {
+    if (!alerts.remove(req.params.id)) return res.status(404).json({ error: 'Alert not found' });
+    res.json(alertsView());
   });
 
   app.get('/api/market-status', async (req, res) => {
@@ -1068,5 +1178,5 @@ export function createApp({
     res.json(marketAt(now()));
   });
 
-  return { app, refreshNSECookies, breeze, streamHub };
+  return { app, refreshNSECookies, breeze, streamHub, alerts };
 }
