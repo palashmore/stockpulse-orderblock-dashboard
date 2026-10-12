@@ -124,6 +124,42 @@ export function createApp({
     }
   }
 
+  // Yahoo's v7 quote endpoint requires a session cookie plus a "crumb" token (otherwise 401).
+  // It is fetched lazily on the first 401, reused afterwards, and refreshed when it stops working.
+  let yahooAuth = null;
+
+  async function refreshYahooAuth() {
+    yahooAuth = null;
+    const home = await fetchFn('https://fc.yahoo.com', { headers: YAHOO_HEADERS, signal: AbortSignal.timeout(10000) });
+    const cookie = (home.headers.getSetCookie ? home.headers.getSetCookie() : [])
+      .map((c) => c.split(';')[0].trim())
+      .filter(Boolean)
+      .join('; ');
+    if (!cookie) throw new Error('Yahoo did not issue a session cookie');
+    const res = await fetchFn('https://query1.finance.yahoo.com/v1/test/getcrumb', {
+      // The crumb endpoint answers 406 to `Accept: application/json`, so ask for anything
+      headers: { ...YAHOO_HEADERS, Accept: '*/*', Cookie: cookie },
+      signal: AbortSignal.timeout(10000),
+    });
+    const crumb = (await res.text()).trim();
+    if (!res.ok || !crumb || crumb.length > 40 || /[<\s]/.test(crumb)) throw new Error('Yahoo did not issue a crumb');
+    yahooAuth = { cookie, crumb };
+  }
+
+  async function yahooQuotes(encodedSymbols) {
+    const request = () => fetchJson(
+      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodedSymbols}${yahooAuth ? `&crumb=${encodeURIComponent(yahooAuth.crumb)}` : ''}`,
+      yahooAuth ? { ...YAHOO_HEADERS, Cookie: yahooAuth.cookie } : YAHOO_HEADERS
+    );
+    try {
+      return await request();
+    } catch (error) {
+      if (error.status !== 401) throw error;
+      await refreshYahooAuth();
+      return await request();
+    }
+  }
+
   async function refreshNSECookies() {
     try {
       const response = await fetchFn('https://www.nseindia.com/', {
@@ -311,8 +347,7 @@ export function createApp({
       load: async () => {
         const viaBroker = await brokerQuote(symbol);
         if (viaBroker) return viaBroker;
-        const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(yahooSymbol)}`;
-        const data = await fetchJson(url, YAHOO_HEADERS);
+        const data = await yahooQuotes(encodeURIComponent(yahooSymbol));
 
         const quote = data.quoteResponse?.result?.[0];
         if (!quote) throw new HttpError(404, 'Stock not found');
@@ -461,8 +496,7 @@ export function createApp({
       policy: POLICY.nifty50,
       load: async () => {
         const symbols = NIFTY50_SYMBOLS.map(s => encodeURIComponent(`${s}.NS`)).join(',');
-        const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
-        const data = await fetchJson(url, YAHOO_HEADERS);
+        const data = await yahooQuotes(symbols);
 
         const results = (data.quoteResponse?.result || []).filter(q => Number.isFinite(q.regularMarketPrice));
         if (results.length === 0) throw new Error('No valid quotes in provider response');

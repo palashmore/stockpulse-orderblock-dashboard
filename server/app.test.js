@@ -192,6 +192,32 @@ describe('API', () => {
     });
   });
 
+  describe('Yahoo crumb handshake', () => {
+    it('retries a 401 with a session cookie and crumb, then reuses them', async () => {
+      let crumbCalls = 0;
+      upstream = (url, init) => {
+        if (url === 'https://fc.yahoo.com') return new Response('', { status: 404, headers: { 'set-cookie': 'A3=abc; Domain=.yahoo.com; Path=/' } });
+        if (url.includes('getcrumb')) { crumbCalls++; return new Response('CRUMB123'); }
+        const authed = url.includes('crumb=CRUMB123') && init.headers.Cookie === 'A3=abc';
+        return authed ? jsonResponse(yahooQuote()) : new Response('Unauthorized', { status: 401 });
+      };
+      const first = await get('/quote/RELIANCE');
+      expect(first.res.status).toBe(200);
+      expect(first.body.price).toBe(1500);
+      clock += 60_000; // past the 30 s quote cache
+      await get('/quote/RELIANCE');
+      expect(crumbCalls).toBe(1);
+      expect(calls.filter((u) => u.includes('v7/finance/quote'))).toHaveLength(3); // 401, retry, reuse
+    });
+
+    it('is unavailable when Yahoo will not issue a crumb', async () => {
+      upstream = (url) => (url === 'https://fc.yahoo.com' ? new Response('', { status: 404 }) : new Response('Unauthorized', { status: 401 }));
+      const { res, body } = await get('/quote/RELIANCE');
+      expect(res.status).toBe(503);
+      expect(body.dataStatus).toBe('UNAVAILABLE');
+    });
+  });
+
   describe('/history', () => {
     it('returns validated candles labeled HISTORICAL', async () => {
       upstream = () => jsonResponse(yahooChart());
