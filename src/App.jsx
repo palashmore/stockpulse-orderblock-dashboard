@@ -20,6 +20,7 @@ import BrokerBooks from './components/BrokerBooks';
 import StockLists from './components/StockLists';
 import MyWatchlist from './components/MyWatchlist';
 import MultiChart from './components/MultiChart';
+import IpoPanel from './components/IpoPanel';
 import ErrorBoundary from './components/ErrorBoundary';
 import { TAB_IDS } from './components/Sidebar';
 import MobileNav from './components/MobileNav';
@@ -421,6 +422,8 @@ export default function App() {
         return <PortfolioPanel onSelectStock={openStockFromOverview} />;
       case 'multichart':
         return demoMode ? <p className="px-4 py-6 text-xs text-gray-500">Multi-Chart needs real market data and is off in simulated mode.</p> : <MultiChart initialSymbol={null} />;
+      case 'ipo':
+        return <IpoPanel />;
       case 'scanner':
         return <ScannerPanel nifty={nifty} onSelectStock={openStockFromOverview} />;
       case 'alerts':

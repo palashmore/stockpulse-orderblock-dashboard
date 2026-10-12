@@ -17,6 +17,7 @@ import {
   FileSearch,
   ListChecks,
   Target,
+  Rocket,
 } from 'lucide-react';
 
 const menuItems = [
@@ -31,6 +32,7 @@ const menuItems = [
   { icon: PlayCircle, label: 'Watchlist', id: 'watchlist' },
   { icon: Wallet, label: 'Portfolio', id: 'portfolio' },
   { icon: ListChecks, label: 'Orders & Positions', id: 'books' },
+  { icon: Rocket, label: 'IPOs', id: 'ipo' },
   { icon: Eye, label: 'Scanner', id: 'scanner' },
   { icon: MessageSquare, label: 'Alerts', id: 'alerts' },
   { icon: Gauge, label: 'API Diagnostics', id: 'diagnostics' },

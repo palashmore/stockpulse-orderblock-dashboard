@@ -206,3 +206,16 @@ export const activateServerAlert = (id) => alertsRequest('POST', `/${encodeURICo
 export const importServerAlerts = (alerts) => alertsRequest('POST', '/import', { alerts });
 export const checkServerAlertsNow = () => alertsRequest('POST', '/check');
 export const testAlertNotification = () => alertsRequest('POST', '/test-notification');
+
+// Mainboard IPOs from NSE's public feeds (through the server). Resolves { ok: true, ipos, todayKey, calendar,
+// dataStatus, provider, fetchedAt, staleAgeSec } or { ok: false, error }. The first load makes several NSE calls, so allow longer.
+export async function fetchIpos() {
+  try {
+    const response = await fetch(`${API_BASE}/ipos`, { cache: 'no-store', signal: AbortSignal.timeout(40000) });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || !Array.isArray(body.ipos)) return { ok: false, error: body.message || body.error || `Request failed (${response.status})` };
+    return { ok: true, ...body };
+  } catch {
+    return { ok: false, error: 'Could not reach the server' };
+  }
+}

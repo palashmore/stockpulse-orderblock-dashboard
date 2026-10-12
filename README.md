@@ -54,6 +54,13 @@ Alerts created on the **Alerts** screen are saved by the server (default `data/a
 * Optional push to your phone through [ntfy](https://ntfy.sh) (free): set `NTFY_TOPIC` in `.env` (see `.env.example`), subscribe to the same topic in the ntfy app, and use **Send test** on the Alerts screen. The alert text is sent to that topic, so use a long random name.
 * The alert endpoints answer only on the machine running the server, like the other personal endpoints. Alerts never place orders.
 
+### Mainboard IPO tracking
+The **IPOs** tab lists mainboard issues only (SME, debt and withdrawal windows are dropped) from NSE's public IPO feeds, through the server. Tabs: open now, upcoming, closed (awaiting listing), listed, tracked, all (history from 2023). Each issue shows its price band, lot, minimum investment, subscription while open, and a timeline: opening, closing, allotment, refund/credit and listing.
+
+* Opening, closing and listing dates are as NSE publishes them. Allotment, refund/credit and a listing date not yet announced are marked **exp.**: they are worked out from SEBI's T+3 timeline on the exchange trading calendar and can change.
+* The feed is an unofficial website source, so it is labelled `DELAYED` (or `STALE` when a cached copy is shown after a failure) and never presented as live. If NSE cannot be reached nothing is shown instead of a guess.
+* Recently listed issues show the latest price against the issue price (not the listing-day gain). Grey-market premium is not shown. Information only; not a recommendation to apply.
+
 ---
 
 ## 🚀 Quick Start Guide

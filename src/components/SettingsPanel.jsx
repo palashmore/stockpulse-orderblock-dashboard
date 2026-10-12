@@ -4,6 +4,8 @@ import { STATUS_META } from '../data/dataStatus';
 import { TIMEFRAMES } from '../data/timeframes';
 import { loadSettings, saveSettings, START_TABS } from '../data/settings';
 
+const BREEZE_PORTAL_HOME = 'https://api.icicidirect.com/apiuser/home';
+
 // Data source settings: sign in to the broker feed for the day. Your broker password is typed only
 // on ICICI Direct's own page; this app and the server never see it.
 export default function SettingsPanel({ demoMode, headlineStatus, onConnectionChange }) {
@@ -94,7 +96,7 @@ export default function SettingsPanel({ demoMode, headlineStatus, onConnectionCh
             <ol className="list-decimal ml-5 space-y-1">
               <li>
                 <a href={auth.loginUrl} target="_blank" rel="noreferrer" className="underline" style={{ color: '#00e5ff' }}>Open the ICICI Direct sign-in page</a>{' '}
-                and log in there. Your password goes only to ICICI.
+                and log in there. Your password goes only to ICICI. This link carries your app key, which is what produces the <code className="text-gray-300">apisession</code> value; the portal home page alone does not.
               </li>
               <li>After signing in, the browser lands on an address starting with <code className="text-gray-300">https://127.0.0.1/?apisession=…</code> (the page itself will not load). Copy that whole address.</li>
               <li>Paste it below.</li>
@@ -112,6 +114,11 @@ export default function SettingsPanel({ demoMode, headlineStatus, onConnectionCh
               </button>
             </form>
             {message && <p role="alert" style={{ color: '#ff1744' }}>{message}</p>}
+            <p className="text-gray-500">
+              Need to check your app, key or Primary IP?{' '}
+              <a href={BREEZE_PORTAL_HOME} target="_blank" rel="noreferrer" className="underline" style={{ color: '#00e5ff' }}>Open the Breeze API portal home</a>.
+              ICICI&apos;s sign-in page asks for a static IP for API use; the Primary IP on your app should be the public IP of the computer running this server.
+            </p>
           </div>
         )}
 

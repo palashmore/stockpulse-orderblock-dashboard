@@ -23,6 +23,7 @@ import { INDEX_DEFS, INDEX_BASE, indexDef, parseIndexCsv, MAX_SYMBOLS_PER_REQUES
 import { BREEZE_STOCK_CODES } from './breezeCodes.js';
 import { createStreamHub, quoteKey } from './breezeStream.js';
 import { createAlertEngine, createMemoryAlertStore } from './alertEngine.js';
+import { buildIpos } from './ipo.js';
 import { parseNseHolidays, getMarketState, markPartialCandles } from './marketCalendar.js';
 import { createRateLimiter, createConcurrencyLimiter } from './limits.js';
 import {
@@ -55,6 +56,7 @@ const POLICY = {
   indexList: { ttl: 24 * 60 * MINUTE, maxStale: 7 * 24 * 60 * MINUTE },
   quotesBatch: { ttl: 45 * 1000, maxStale: 15 * MINUTE },
   historyIntraday: { ttl: 60 * 1000, maxStale: 60 * MINUTE },
+  ipos: { ttl: 10 * MINUTE, maxStale: 24 * 60 * MINUTE },
 };
 
 const RANGE_DAYS = { '1d': 1, '5d': 5, '1mo': 31, '3mo': 93, '6mo': 186, '1y': 366, '2y': 731, '5y': 1827 };
@@ -1171,6 +1173,56 @@ export function createApp({
   app.delete('/api/alerts/:id', localOnly, (req, res) => {
     if (!alerts.remove(req.params.id)) return res.status(404).json({ error: 'Alert not found' });
     res.json(alertsView());
+  });
+
+  // ---- mainboard IPO tracking (NSE's public IPO feeds). Open and forthcoming issues also get their bid lot and
+  // category-wise subscription from the issue's detail page; if that fails the issue is still listed without them.
+  async function nseJson(apiPath, referer = 'https://www.nseindia.com/market-data/all-upcoming-issues-ipo') {
+    const request = () => fetchFn(`https://www.nseindia.com/api/${apiPath}`, {
+      headers: { ...NSE_HEADERS, Cookie: nseCookies, Referer: referer, Accept: 'application/json' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!nseCookies) await refreshNSECookies();
+    let response = await request();
+    if (response.status === 401 || response.status === 403) {
+      await refreshNSECookies();
+      response = await request();
+    }
+    if (!response.ok) throw new Error(`NSE HTTP ${response.status}`);
+    return response.json();
+  }
+
+  async function loadIpos() {
+    const upcoming = await nseJson('all-upcoming-issues?category=ipo');
+    const [past, current] = await Promise.all([
+      nseJson('public-past-issues'),
+      nseJson('ipo-current-issue').catch(() => []),
+    ]);
+    if (!Array.isArray(upcoming) || !Array.isArray(past)) throw new Error('NSE IPO feed had an unexpected shape');
+    const nowMs = now();
+    const context = { todayKey: istDateKey(nowMs), holidays };
+    const feeds = { upcoming, current: Array.isArray(current) ? current : [], past, details: {} };
+
+    const live = buildIpos(feeds, context).filter((ipo) => ipo.stage === 'UPCOMING' || ipo.stage === 'OPEN');
+    await Promise.all(live.map(async (ipo) => {
+      try {
+        feeds.details[ipo.symbol] = await nseJson(`ipo-detail?symbol=${encodeURIComponent(ipo.symbol)}&series=EQ`, `https://www.nseindia.com/market-data/issue-information?symbol=${encodeURIComponent(ipo.symbol)}&series=EQ&type=Active`);
+      } catch (error) {
+        recordError('ipo-detail', `${ipo.symbol}: ${error.message}`);
+      }
+    }));
+
+    return {
+      body: { ipos: buildIpos(feeds, context), todayKey: context.todayKey, calendar: holidays ? 'nse' : 'weekends-only' },
+      status: DATA_STATUS.DELAYED, // unofficial website feed: never better than DELAYED
+      provider: 'NSE India website',
+      fetchedAt: new Date(nowMs).toISOString(),
+      asOf: null,
+    };
+  }
+
+  app.get('/api/ipos', async (req, res) => {
+    await serve(res, 'IPO list', { key: 'ipos', policy: POLICY.ipos, load: loadIpos });
   });
 
   app.get('/api/market-status', async (req, res) => {
