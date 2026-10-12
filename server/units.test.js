@@ -8,7 +8,8 @@ import {
 } from './dataStatus.js';
 import { computePCR, computeMaxPain, buildOptionsChain } from './options.js';
 import { normalizeCandles, isValidSymbol, isSupportedCombination, isIntradayInterval } from './validators.js';
-import { classifyHistoryStatus } from './dataStatus.js';
+import { classifyHistoryStatus, classifyClosedMarketData } from './dataStatus.js';
+import { getMarketState, markPartialCandles } from './marketCalendar.js';
 import { NIFTY50_SYMBOLS } from './app.js';
 import { NIFTY_STOCKS } from '../src/data/stockData.js';
 
@@ -184,5 +185,58 @@ describe('sector coverage', () => {
     const missing = NIFTY50_SYMBOLS.filter((sym) => !bySymbol.get(sym)?.sector);
     expect(missing).toEqual([]);
     expect(new Set(NIFTY_STOCKS.map((s) => s.symbol)).size).toBe(NIFTY_STOCKS.length);
+  });
+});
+
+describe('closed-market data status', () => {
+  const ist = (y, mo, d, h, mi = 0) => Date.UTC(y, mo - 1, d, h, mi) - 19800000;
+  const saturday = getMarketState(ist(2026, 10, 10, 11), null); // last session: Fri 9 Oct
+
+  it('MARKET_CLOSED for the last session, STALE when older, HISTORICAL when untimed', () => {
+    expect(classifyClosedMarketData(ist(2026, 10, 9, 15, 29), saturday)).toBe('MARKET_CLOSED');
+    expect(classifyClosedMarketData(ist(2026, 10, 8, 15, 29), saturday)).toBe('STALE');
+    expect(classifyClosedMarketData(null, saturday)).toBe('HISTORICAL');
+  });
+
+  it('quote status follows the exchange clock, not the provider state', () => {
+    const base = { marketState: 'REGULAR', quoteTimeMs: ist(2026, 10, 9, 15, 29), nowMs: ist(2026, 10, 10, 11), market: saturday };
+    expect(classifyQuoteStatus(base)).toBe('MARKET_CLOSED');
+    const open = getMarketState(ist(2026, 10, 12, 11), null);
+    expect(classifyQuoteStatus({ ...base, market: open, quoteTimeMs: ist(2026, 10, 12, 10, 59), nowMs: ist(2026, 10, 12, 11) })).toBe('DELAYED');
+  });
+
+  it('a pre-open quote stamped today is not called stale', () => {
+    const preOpen = getMarketState(ist(2026, 10, 12, 9, 5), null);
+    expect(classifyClosedMarketData(ist(2026, 10, 12, 9, 4), preOpen)).toBe('MARKET_CLOSED');
+  });
+});
+
+describe('markPartialCandles', () => {
+  const ist = (y, mo, d, h, mi = 0) => Date.UTC(y, mo - 1, d, h, mi) - 19800000;
+  const daily = (...days) => days.map((d) => ({ time: `2026-10-${String(d).padStart(2, '0')}` }));
+
+  it('daily: only today\'s candle, only while a session is in progress', () => {
+    const open = getMarketState(ist(2026, 10, 12, 11), null);
+    expect(markPartialCandles(daily(8, 9, 12), '1d', open).map((c) => !!c.partial)).toEqual([false, false, true]);
+    const closed = getMarketState(ist(2026, 10, 12, 16), null);
+    expect(markPartialCandles(daily(8, 9, 12), '1d', closed).some((c) => c.partial)).toBe(false);
+  });
+
+  it('weekly: partial mid-week, complete after the last trading day of the week closes', () => {
+    const week = (monday) => [{ time: monday }];
+    const wednesday = getMarketState(ist(2026, 10, 14, 16), null);
+    expect(markPartialCandles(week('2026-10-12'), '1wk', wednesday)[0].partial).toBe(true);
+    const fridayEvening = getMarketState(ist(2026, 10, 16, 16), null);
+    expect(markPartialCandles(week('2026-10-12'), '1wk', fridayEvening)[0].partial).toBeUndefined();
+    const fridayOpen = getMarketState(ist(2026, 10, 16, 11), null);
+    expect(markPartialCandles(week('2026-10-12'), '1wk', fridayOpen)[0].partial).toBe(true);
+    const nextMonday = getMarketState(ist(2026, 10, 19, 8), null);
+    expect(markPartialCandles(week('2026-10-12'), '1wk', nextMonday)[0].partial).toBeUndefined();
+  });
+
+  it('leaves intraday, empty and non-date series alone', () => {
+    const open = getMarketState(ist(2026, 10, 12, 11), null);
+    expect(markPartialCandles([{ time: 1791278100 }], '5m', open)[0].partial).toBeUndefined();
+    expect(markPartialCandles([], '1d', open)).toEqual([]);
   });
 });

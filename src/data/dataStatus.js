@@ -1,12 +1,30 @@
 // Display metadata for the data-status labels returned by the API (plus client-side SIMULATED).
 export const STATUS_META = {
-  LIVE: { label: 'LIVE', color: '#00e676', description: 'Real-time data from the provider.' },
-  DELAYED: { label: 'DELAYED', color: '#00e5ff', description: 'Current-session data from an unofficial feed; real-time delivery is not guaranteed.' },
-  HISTORICAL: { label: 'HISTORICAL', color: '#64748b', description: 'Data from the last completed session or earlier.' },
-  STALE: { label: 'STALE', color: '#ffd600', description: 'Older than expected, or a cached value served because the provider failed.' },
+  LIVE: { label: 'LIVE MARKET', color: '#00e676', description: 'Verified real-time data: the broker feed\'s own exchange timestamp is current.' },
+  DELAYED: { label: 'DELAYED DATA', color: '#00e5ff', description: 'Current-session data from an unofficial feed; real-time delivery is not guaranteed.' },
+  MARKET_CLOSED: { label: 'MARKET CLOSED', color: '#94a3b8', description: 'The market is closed. Showing the latest completed trading session, not a live price.' },
+  HISTORICAL: { label: 'HISTORICAL DATA', color: '#64748b', description: 'Historical data from completed sessions.' },
+  STALE: { label: 'STALE DATA', color: '#ffd600', description: 'Older than expected, or a cached value served because the provider failed.' },
   SIMULATED: { label: 'SIMULATED', color: '#ff9100', description: 'Generated sample data. Not market data.' },
-  UNAVAILABLE: { label: 'UNAVAILABLE', color: '#ff1744', description: 'No reliable market data could be retrieved.' },
+  UNAVAILABLE: { label: 'DATA UNAVAILABLE', color: '#ff1744', description: 'No reliable market data could be retrieved.' },
 };
+
+/** Short label for the exchange state shown beside the data badge. */
+export function describeMarketState(market) {
+  if (!market) return null;
+  if (market.state === 'OPEN') return 'Market open';
+  if (market.state === 'PRE_OPEN') return 'Pre-open';
+  if (market.reason === 'holiday') return `Closed: ${market.holiday || 'exchange holiday'}`;
+  if (market.reason === 'weekend') return 'Closed: weekend';
+  return 'Market closed';
+}
+
+/** 'Fri 9 Oct' for a YYYY-MM-DD session date, or null. */
+export function formatSessionDate(key) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key || '');
+  if (!m) return null;
+  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
 
 /**
  * Headline status for the dashboard. Only labels backed by actual state:

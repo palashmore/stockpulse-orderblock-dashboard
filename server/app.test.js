@@ -126,10 +126,25 @@ describe('API', () => {
       expect(body.asOf).toBe(new Date(OPEN_MS - 60_000).toISOString());
     });
 
-    it('labels out-of-session data HISTORICAL', async () => {
+    it('labels a closed-market quote from the last session MARKET_CLOSED', async () => {
+      clock = CLOSED_MS; // Saturday: the last completed session is Friday 9 Oct
+      const fridayClose = Date.UTC(2026, 9, 9, 10, 0);
+      upstream = () => jsonResponse(yahooQuote({ marketState: 'CLOSED' }, fridayClose));
+      const { body } = await get('/quote/RELIANCE');
+      expect(body.dataStatus).toBe('MARKET_CLOSED');
+      expect(body.asOf).toBe(new Date(fridayClose).toISOString());
+    });
+
+    it('labels a closed-market quote older than the last session STALE', async () => {
       clock = CLOSED_MS;
-      upstream = () => jsonResponse(yahooQuote({ marketState: 'CLOSED' }, CLOSED_MS - 3_600_000));
-      expect((await get('/quote/RELIANCE')).body.dataStatus).toBe('HISTORICAL');
+      upstream = () => jsonResponse(yahooQuote({ marketState: 'CLOSED' }, Date.UTC(2026, 9, 7, 10, 0)));
+      expect((await get('/quote/RELIANCE')).body.dataStatus).toBe('STALE');
+    });
+
+    it('does not trust the provider marketState over the exchange clock', async () => {
+      clock = CLOSED_MS; // our calendar says closed even though the provider claims REGULAR
+      upstream = () => jsonResponse(yahooQuote({ marketState: 'REGULAR' }, Date.UTC(2026, 9, 9, 10, 0)));
+      expect((await get('/quote/RELIANCE')).body.dataStatus).toBe('MARKET_CLOSED');
     });
 
     it('labels an old in-session quote STALE', async () => {
@@ -218,6 +233,70 @@ describe('API', () => {
     });
   });
 
+  describe('/market-status and the holiday calendar', () => {
+    const holidayJson = { CM: [{ tradingDate: '12-Oct-2026', description: 'Test Holiday' }] };
+
+    async function startWithCalendar(holidayFetch) {
+      await new Promise((resolve) => server.close(resolve));
+      const fetchFn = async (url) => { calls.push(String(url)); return upstream(String(url)); };
+      const { app } = createApp({ fetchFn, now: () => clock, retryDelayMs: 0, holidayFetch });
+      await new Promise((resolve) => { server = app.listen(0, resolve); });
+      base = `http://127.0.0.1:${server.address().port}/api`;
+    }
+
+    it('without a calendar source reports weekends-only and OPEN on a weekday', async () => {
+      const { body } = await get('/market-status');
+      expect(body).toMatchObject({ state: 'OPEN', isOpen: true, calendar: 'weekends-only', timezone: 'Asia/Kolkata' });
+    });
+
+    it('uses NSE holidays when available: the day is CLOSED and the holiday is named', async () => {
+      const holidayFetch = async (url) => {
+        if (url === 'https://www.nseindia.com/') return new Response('', { headers: { 'set-cookie': 'a=b' } });
+        return jsonResponse(holidayJson);
+      };
+      await startWithCalendar(async (url, init) => (url.includes('holiday-master')
+        ? jsonResponse(holidayJson)
+        : holidayFetch(url, init)));
+      const { body } = await get('/market-status');
+      expect(body).toMatchObject({ state: 'CLOSED', reason: 'holiday', holiday: 'Test Holiday', isOpen: false, calendar: 'nse', lastSession: '2026-10-09' });
+    });
+
+    it('a quote on a holiday is MARKET_CLOSED against the previous session, not live', async () => {
+      await startWithCalendar(async (url) => (url.includes('holiday-master') ? jsonResponse(holidayJson) : new Response('', { headers: { 'set-cookie': 'a=b' } })));
+      upstream = () => jsonResponse(yahooQuote({ marketState: 'REGULAR' }, Date.UTC(2026, 9, 9, 10, 0)));
+      expect((await get('/quote/RELIANCE')).body.dataStatus).toBe('MARKET_CLOSED');
+    });
+
+    it('keeps working with weekends-only when the calendar fetch fails', async () => {
+      await startWithCalendar(async () => { throw new Error('blocked'); });
+      upstream = () => jsonResponse(yahooQuote());
+      const status = await get('/market-status');
+      expect(status.body.calendar).toBe('weekends-only');
+      expect((await get('/quote/RELIANCE')).res.status).toBe(200);
+    });
+  });
+
+  describe('partial candles', () => {
+    const dayStamp = (d) => Math.floor(Date.UTC(2026, 9, d, 4, 0) / 1000); // 09:30 IST
+    const chart = (days) => ({
+      chart: { result: [{ meta: { currency: 'INR', exchangeName: 'NSI', gmtoffset: 19800 }, timestamp: days.map(dayStamp),
+        indicators: { quote: [{ open: days.map(() => 10), high: days.map(() => 12), low: days.map(() => 9), close: days.map(() => 11), volume: days.map(() => 5) }], adjclose: [{ adjclose: days.map(() => 11) }] } }] },
+    });
+
+    it('flags the in-progress daily candle while the market is open', async () => {
+      upstream = () => jsonResponse(chart([8, 9, 12])); // today is Monday 12 Oct, market open
+      const { body } = await get('/history/RELIANCE?range=1mo&interval=1d');
+      expect(body.candles.map((c) => !!c.partial)).toEqual([false, false, true]);
+    });
+
+    it('does not flag the latest daily candle once the session has closed', async () => {
+      clock = Date.UTC(2026, 9, 12, 11, 0); // 16:30 IST
+      upstream = () => jsonResponse(chart([8, 9, 12]));
+      const { body } = await get('/history/RELIANCE?range=1mo&interval=1d');
+      expect(body.candles.some((c) => c.partial)).toBe(false);
+    });
+  });
+
   describe('/history', () => {
     it('returns validated candles labeled HISTORICAL', async () => {
       upstream = () => jsonResponse(yahooChart());
@@ -303,9 +382,15 @@ describe('API', () => {
       expect(body.asOf).toBe(new Date(Date.UTC(2026, 9, 12, 5, 28)).toISOString());
     });
 
-    it('labels options HISTORICAL outside the session', async () => {
-      clock = CLOSED_MS;
-      expect((await get('/options/RELIANCE')).body.dataStatus).toBe('HISTORICAL');
+    it('labels options MARKET_CLOSED when the chain is from the last session, STALE when older', async () => {
+      clock = Date.UTC(2026, 9, 12, 11, 0); // Monday 16:30 IST, after the close
+      upstream = (url) => (url === 'https://www.nseindia.com/'
+        ? new Response('', { headers: { 'set-cookie': 'nsit=abc; Path=/' } })
+        : jsonResponse(nseChain())); // chain timestamp 12-Oct-2026 10:58 IST
+      expect((await get('/options/RELIANCE')).body.dataStatus).toBe('MARKET_CLOSED');
+      clock = Date.UTC(2026, 9, 14, 5, 0); // Wednesday morning, chain two sessions old
+      const stale = await get('/options/RELIANCE');
+      expect(stale.body.dataStatus).toBe('STALE');
     });
 
     it('does not fall back to fabricated values when NSE fails', async () => {

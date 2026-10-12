@@ -1,48 +1,47 @@
+import { getMarketState, istDateKey } from './marketCalendar.js';
+
 // Data status labels attached to every provider-backed response.
-// The server never emits LIVE: Yahoo Finance and the NSE website are unofficial,
-// unauthenticated feeds whose real-time delivery cannot be verified from the response.
+// LIVE is only emitted for a broker feed whose own exchange timestamps are fresh in-session;
+// Yahoo Finance and the NSE website are unofficial feeds and top out at DELAYED.
+// MARKET_CLOSED means the market is shut and the data is the latest completed session.
 // SIMULATED is only ever produced by the frontend's explicit demo mode.
 export const DATA_STATUS = {
   LIVE: 'LIVE',
   DELAYED: 'DELAYED',
+  MARKET_CLOSED: 'MARKET_CLOSED',
   HISTORICAL: 'HISTORICAL',
   SIMULATED: 'SIMULATED',
   STALE: 'STALE',
   UNAVAILABLE: 'UNAVAILABLE',
 };
 
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
 // A quote during the regular session older than this is reported as STALE.
 export const MAX_IN_SESSION_AGE_MS = 20 * 60 * 1000;
 
-const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/**
+ * NSE equity session state at an instant. Pass the exchange holiday map (parseNseHolidays) so
+ * holidays are detected; without it only weekends are, and `calendar` says so.
+ */
+export function getMarketStatus(date = new Date(), holidays = null) {
+  return getMarketState(date.getTime(), holidays);
+}
 
 /**
- * NSE equity session from the clock only (09:15-15:30 IST, Mon-Fri).
- * Exchange holidays are not modelled.
+ * Status for data read while the market is closed: MARKET_CLOSED when its timestamp falls in the
+ * latest completed session (or a session that is just starting), STALE when it is older,
+ * HISTORICAL when it carries no timestamp to check.
  */
-export function getMarketStatus(date = new Date()) {
-  const istNow = new Date(date.getTime() + IST_OFFSET_MS);
-  const day = istNow.getUTCDay();
-  const timeInMinutes = istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
-
-  const isWeekday = day >= 1 && day <= 5;
-  const isMarketHours = timeInMinutes >= 555 && timeInMinutes <= 930;
-  const isPreOpen = timeInMinutes >= 540 && timeInMinutes < 555;
-
-  return {
-    isOpen: isWeekday && isMarketHours,
-    isPreOpen: isWeekday && isPreOpen,
-    currentTime: istNow.toISOString(),
-    marketOpen: '09:15',
-    marketClose: '15:30',
-    timezone: 'IST',
-    day: DAYS[day],
-  };
+export function classifyClosedMarketData(asOfMs, market) {
+  if (!Number.isFinite(asOfMs)) return DATA_STATUS.HISTORICAL;
+  const day = istDateKey(asOfMs);
+  return day === market.lastSession || day === market.currentSession ? DATA_STATUS.MARKET_CLOSED : DATA_STATUS.STALE;
 }
 
 /** Status of a quote from Yahoo `marketState` and the quote's own timestamp. */
-export function classifyQuoteStatus({ marketState, quoteTimeMs, nowMs }) {
+export function classifyQuoteStatus({ marketState, quoteTimeMs, nowMs, market }) {
+  if (market && !market.isOpen) return classifyClosedMarketData(quoteTimeMs, market);
   if (marketState !== 'REGULAR') return DATA_STATUS.HISTORICAL;
   if (!Number.isFinite(quoteTimeMs)) return DATA_STATUS.STALE;
   if (nowMs - quoteTimeMs > MAX_IN_SESSION_AGE_MS) return DATA_STATUS.STALE;
@@ -50,8 +49,8 @@ export function classifyQuoteStatus({ marketState, quoteTimeMs, nowMs }) {
 }
 
 /** Status of an options chain from the session clock and the provider timestamp. */
-export function classifyOptionsStatus({ marketOpen, asOfMs, nowMs }) {
-  if (!marketOpen) return DATA_STATUS.HISTORICAL;
+export function classifyOptionsStatus({ marketOpen, asOfMs, nowMs, market }) {
+  if (!marketOpen) return market ? classifyClosedMarketData(asOfMs, market) : DATA_STATUS.HISTORICAL;
   if (!Number.isFinite(asOfMs)) return DATA_STATUS.DELAYED;
   if (nowMs - asOfMs > MAX_IN_SESSION_AGE_MS) return DATA_STATUS.STALE;
   return DATA_STATUS.DELAYED;
@@ -73,8 +72,8 @@ export function classifyHistoryStatus({ intraday, marketOpen, lastBarMs, interva
 export const LIVE_QUOTE_MAX_AGE_MS = 2 * 60 * 1000;
 
 /** Status of a broker quote from the session clock and the exchange's last-trade time. */
-export function classifyLiveQuoteStatus({ marketOpen, lastTradeMs, nowMs }) {
-  if (!marketOpen) return DATA_STATUS.HISTORICAL;
+export function classifyLiveQuoteStatus({ marketOpen, lastTradeMs, nowMs, market }) {
+  if (!marketOpen) return market ? classifyClosedMarketData(lastTradeMs, market) : DATA_STATUS.HISTORICAL;
   if (!Number.isFinite(lastTradeMs)) return DATA_STATUS.DELAYED;
   return nowMs - lastTradeMs <= LIVE_QUOTE_MAX_AGE_MS ? DATA_STATUS.LIVE : DATA_STATUS.STALE;
 }

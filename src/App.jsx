@@ -21,7 +21,7 @@ import {
   generateCandlestickData,
   generateSignals,
 } from './data/stockData';
-import { resolveHeadlineStatus, isDemoModeRequested } from './data/dataStatus';
+import { resolveHeadlineStatus, isDemoModeRequested, describeMarketState, formatSessionDate } from './data/dataStatus';
 import {
   detectOrderBlocks,
   generateSignalsFromOptions,
@@ -34,6 +34,14 @@ import {
   fetchOptions,
   fetchMarketStatus,
 } from './services/api';
+
+function formatDataTime(asOf) {
+  // asOf is an ISO instant for quotes/intraday and a YYYY-MM-DD date for daily candles
+  if (/^\d{4}-\d{2}-\d{2}$/.test(asOf)) return formatSessionDate(asOf);
+  const d = new Date(asOf);
+  if (Number.isNaN(d.getTime())) return asOf;
+  return d.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) + ' IST';
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => {
@@ -77,6 +85,17 @@ export default function App() {
     });
   }, []);
 
+  // Keep the exchange state current: re-check every 30 s so the app moves between open and closed
+  // modes by itself, and reload the data whenever the market opens or closes.
+  const wasOpen = useRef(null);
+  useEffect(() => {
+    if (demoMode || !backendUp) return;
+    const poll = () => fetchMarketStatus().then((m) => { if (m) setMarketStatus(m); });
+    poll();
+    const interval = setInterval(poll, 30000);
+    return () => clearInterval(interval);
+  }, [demoMode, backendUp]);
+
   // Check backend availability on mount
   useEffect(() => {
     if (!demoMode) checkBackend();
@@ -110,6 +129,15 @@ export default function App() {
     loadRealData(selectedStock.symbol);
   }, [selectedStock.symbol, loadRealData]);
 
+  useEffect(() => {
+    if (!marketStatus) return;
+    if (wasOpen.current !== null && wasOpen.current !== marketStatus.isOpen) {
+      loadRealData(selectedStock.symbol);
+      nifty.retry();
+    }
+    wasOpen.current = marketStatus.isOpen;
+  }, [marketStatus, loadRealData, selectedStock.symbol, nifty]);
+
   // Refresh every 60 seconds; re-check the backend if it was unreachable
   useEffect(() => {
     if (demoMode) return;
@@ -128,9 +156,13 @@ export default function App() {
     return aggregate ? aggregateCandles(history.candles, aggregate) : history.candles;
   }, [demoMode, history, selectedStock.symbol, timeframe]);
 
+  // Analysis (order blocks, indicators) uses completed candles only: the server flags the
+  // in-progress daily/weekly candle `partial`, which is drawn on the chart but never analysed.
+  const analysisCandles = useMemo(() => candleData.filter((c) => !c.partial), [candleData]);
+
   const orderBlocks = useMemo(() => {
-    return detectOrderBlocks(candleData);
-  }, [candleData]);
+    return detectOrderBlocks(analysisCandles);
+  }, [analysisCandles]);
 
   const signals = useMemo(() => {
     if (demoMode) return generateSignals(candleData);
@@ -138,8 +170,8 @@ export default function App() {
   }, [demoMode, optionsData, candleData]);
 
   const metrics = useMemo(() => {
-    return computeMetrics(candleData, demoMode ? null : realQuote);
-  }, [demoMode, candleData, realQuote]);
+    return computeMetrics(analysisCandles, demoMode ? null : realQuote);
+  }, [demoMode, analysisCandles, realQuote]);
 
   const headlineStatus = resolveHeadlineStatus({
     demoMode,
@@ -150,6 +182,9 @@ export default function App() {
     quote: realQuote,
     history,
   });
+
+  // Timestamp of the data on screen (provider time), falling back to nothing rather than the fetch time
+  const dataAsOf = realQuote?.asOf ?? history?.asOf ?? null;
 
   const retry = () => {
     if (backendUp) loadRealData(selectedStock.symbol);
@@ -388,21 +423,22 @@ export default function App() {
               }}
             />
 
-            {/* Market status */}
-            {marketStatus && (
+            {/* Exchange state */}
+            {marketStatus && !demoMode && (
               <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg"
-                style={{ backgroundColor: 'rgba(30, 45, 61, 0.2)' }}>
+                style={{ backgroundColor: 'rgba(30, 45, 61, 0.2)' }}
+                title={marketStatus.calendar === 'nse' ? 'NSE holiday calendar loaded' : 'Exchange holidays are not detected (calendar unavailable); only weekends are'}>
                 <div className={`w-1.5 h-1.5 rounded-full ${marketStatus.isOpen ? 'bg-green-500' : marketStatus.isPreOpen ? 'bg-yellow-500' : 'bg-red-500'}`} />
-                <span className="text-[10px] text-gray-500">
-                  {marketStatus.isOpen ? 'Market Open' : marketStatus.isPreOpen ? 'Pre-Open' : 'Market Closed'}
-                </span>
+                <span className="text-[10px] text-gray-500">{describeMarketState(marketStatus)}</span>
+                {marketStatus.calendar !== 'nse' && <span className="text-[10px]" style={{ color: '#ffd600' }}>(holidays not checked)</span>}
               </div>
             )}
 
-            {/* Last update time */}
-            {lastUpdate && !noData && (
+            {/* Data timestamp and last session */}
+            {!demoMode && !noData && (
               <span className="text-[10px] text-gray-600">
-                Fetched: {lastUpdate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                {dataAsOf ? `Data as of ${formatDataTime(dataAsOf)}` : lastUpdate ? `Fetched ${lastUpdate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                {marketStatus?.lastSession ? ` · Last session ${formatSessionDate(marketStatus.lastSession)}` : ''}
               </span>
             )}
 

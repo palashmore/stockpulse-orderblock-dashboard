@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveHeadlineStatus, isDemoModeRequested, STATUS_META } from './dataStatus';
+import { resolveHeadlineStatus, isDemoModeRequested, STATUS_META, describeMarketState, formatSessionDate } from './dataStatus';
 
 const base = { demoMode: false, backendUp: true, attempted: true, hasData: true, refreshFailed: false, quote: null, history: null };
 
@@ -34,9 +34,31 @@ describe('resolveHeadlineStatus', () => {
   });
 
   it('every status has display metadata', () => {
-    for (const s of ['LIVE', 'DELAYED', 'HISTORICAL', 'SIMULATED', 'STALE', 'UNAVAILABLE']) {
-      expect(STATUS_META[s].label).toBe(s);
-    }
+    expect(Object.keys(STATUS_META).sort()).toEqual(['DELAYED', 'HISTORICAL', 'LIVE', 'MARKET_CLOSED', 'SIMULATED', 'STALE', 'UNAVAILABLE']);
+    expect(STATUS_META.LIVE.label).toBe('LIVE MARKET');
+    expect(STATUS_META.MARKET_CLOSED.label).toBe('MARKET CLOSED');
+    expect(STATUS_META.UNAVAILABLE.label).toBe('DATA UNAVAILABLE');
+  });
+
+  it('passes MARKET_CLOSED through from the provider status', () => {
+    expect(resolveHeadlineStatus({ ...base, quote: { dataStatus: 'MARKET_CLOSED' } })).toBe('MARKET_CLOSED');
+  });
+});
+
+describe('market state text', () => {
+  it('describes open, pre-open, holiday, weekend and after-hours', () => {
+    expect(describeMarketState({ state: 'OPEN' })).toBe('Market open');
+    expect(describeMarketState({ state: 'PRE_OPEN' })).toBe('Pre-open');
+    expect(describeMarketState({ state: 'CLOSED', reason: 'holiday', holiday: 'Dussehra' })).toBe('Closed: Dussehra');
+    expect(describeMarketState({ state: 'CLOSED', reason: 'weekend' })).toBe('Closed: weekend');
+    expect(describeMarketState({ state: 'CLOSED', reason: 'after_close' })).toBe('Market closed');
+    expect(describeMarketState(null)).toBeNull();
+  });
+
+  it('formats a session date', () => {
+    expect(formatSessionDate('2026-10-09')).toMatch(/Fri/);
+    expect(formatSessionDate('garbage')).toBeNull();
+    expect(formatSessionDate(null)).toBeNull();
   });
 });
 

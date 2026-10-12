@@ -3,7 +3,6 @@ import cors from 'cors';
 import { createCache } from './cache.js';
 import {
   DATA_STATUS,
-  getMarketStatus,
   classifyQuoteStatus,
   classifyOptionsStatus,
   classifyHistoryStatus,
@@ -12,6 +11,7 @@ import {
   parseNseTimestamp,
 } from './dataStatus.js';
 import { buildOptionsChain } from './options.js';
+import { parseNseHolidays, getMarketState, markPartialCandles } from './marketCalendar.js';
 import { createRateLimiter, createConcurrencyLimiter } from './limits.js';
 import {
   createBreezeClient,
@@ -38,6 +38,7 @@ const POLICY = {
   quote: { ttl: 30 * 1000, maxStale: 15 * MINUTE },
   nifty50: { ttl: 30 * 1000, maxStale: 15 * MINUTE },
   options: { ttl: 60 * 1000, maxStale: 30 * MINUTE },
+  holidays: { ttl: 12 * 60 * MINUTE },
   history: { ttl: 5 * MINUTE, maxStale: 24 * 60 * MINUTE },
   historyIntraday: { ttl: 60 * 1000, maxStale: 60 * MINUTE },
 };
@@ -88,6 +89,9 @@ export function createApp({
   retryDelayMs = 1000,
   rateLimit = { windowMs: 60_000, max: Number(process.env.RATE_LIMIT_PER_MIN) || 120 },
   upstreamConcurrency = Number(process.env.UPSTREAM_CONCURRENCY) || 4,
+  // Exchange holiday calendar source. Defaults to NSE's own list when the real fetch is in use and
+  // is off when a custom fetchFn is injected (tests, fake feeds); then only weekends are detected.
+  holidayFetch = rawFetch === globalThis.fetch ? globalThis.fetch : null,
   breeze = createBreezeClient({ appKey: process.env.BREEZE_API_KEY, secret: process.env.BREEZE_API_SECRET }),
 } = {}) {
   const app = express();
@@ -203,6 +207,7 @@ export function createApp({
   }
 
   async function serve(res, label, { key, policy, load }) {
+    await ensureHolidays();
     const fresh = cache.getFresh(key, policy.ttl);
     if (fresh) return respond(res, fresh);
 
@@ -239,6 +244,42 @@ export function createApp({
     return symbol;
   };
 
+  // ============ MARKET CALENDAR ============
+  let holidays = null; // Map of YYYY-MM-DD -> holiday name once loaded
+  let holidaysLoadedAt = 0;
+  let holidaysInFlight = null;
+
+  async function loadHolidays() {
+    if (!nseCookies) await refreshNSECookies();
+    const response = await holidayFetch('https://www.nseindia.com/api/holiday-master?type=trading', {
+      headers: { ...NSE_HEADERS, Cookie: nseCookies },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error(`NSE holiday calendar HTTP ${response.status}`);
+    const parsed = parseNseHolidays(await response.json());
+    if (!parsed) throw new Error('NSE holiday calendar was empty');
+    return parsed;
+  }
+
+  /** Refresh the holiday calendar when due. Never throws; keeps the last good calendar on failure. */
+  async function ensureHolidays() {
+    if (!holidayFetch) return;
+    const age = now() - holidaysLoadedAt;
+    if (holidays && age < POLICY.holidays.ttl) return;
+    if (!holidaysInFlight) {
+      holidaysInFlight = loadHolidays()
+        .then((map) => { holidays = map; holidaysLoadedAt = now(); })
+        .catch((error) => {
+          console.error('Holiday calendar error:', error.message);
+          holidaysLoadedAt = now() - POLICY.holidays.ttl + 10 * MINUTE; // retry in 10 minutes
+        })
+        .finally(() => { holidaysInFlight = null; });
+    }
+    await holidaysInFlight;
+  }
+
+  const marketAt = (ms) => getMarketState(ms, holidays);
+
   // ============ BROKER FEED (ICICI Direct Breeze) ============
   // Used when the user has signed in and the symbol is mapped. Any failure falls back to Yahoo,
   // and every response names its provider, so the two feeds are never silently mixed.
@@ -254,7 +295,7 @@ export function createApp({
       delete body.lastTradeTime;
       return {
         body: { ...body, timestamp: lastTradeMs === null ? null : Math.floor(lastTradeMs / 1000) },
-        status: classifyLiveQuoteStatus({ marketOpen: getMarketStatus(new Date(nowMs)).isOpen, lastTradeMs, nowMs }),
+        status: classifyLiveQuoteStatus({ marketOpen: marketAt(nowMs).isOpen, lastTradeMs, nowMs, market: marketAt(nowMs) }),
         provider: 'ICICI Direct Breeze',
         fetchedAt: new Date(nowMs).toISOString(),
         asOf: lastTradeMs === null ? null : new Date(lastTradeMs).toISOString(),
@@ -273,13 +314,14 @@ export function createApp({
       const nowMs = now();
       const intraday = interval !== '1d';
       const candles = await breeze.getHistory(code, interval, nowMs - days * 86400000, nowMs);
+      markPartialCandles(candles, interval, marketAt(nowMs), holidays);
       const last = candles[candles.length - 1];
       const lastBarMs = intraday ? (last.time - 19800) * 1000 : null;
       return {
         body: { symbol, currency: 'INR', exchange: 'NSE', candles },
         status: classifyLiveHistoryStatus({
           intraday,
-          marketOpen: getMarketStatus(new Date(nowMs)).isOpen,
+          marketOpen: marketAt(nowMs).isOpen,
           lastBarMs,
           intervalMs: INTERVAL_MS[interval],
           nowMs,
@@ -382,7 +424,7 @@ export function createApp({
             timestamp: quote.regularMarketTime,
             currency: quote.currency || 'INR',
           },
-          status: classifyQuoteStatus({ marketState: quote.marketState, quoteTimeMs, nowMs }),
+          status: classifyQuoteStatus({ marketState: quote.marketState, quoteTimeMs, nowMs, market: marketAt(nowMs) }),
           provider: 'Yahoo Finance',
           fetchedAt: new Date(nowMs).toISOString(),
           asOf: quoteTimeMs === null ? null : new Date(quoteTimeMs).toISOString(),
@@ -422,6 +464,7 @@ export function createApp({
           intraday
         );
         if (candles.length === 0) throw new Error('No valid candles in provider response');
+        markPartialCandles(candles, interval, marketAt(now()), holidays);
         const lastCandle = candles[candles.length - 1];
         const offsetSec = Number.isFinite(chart.meta?.gmtoffset) ? chart.meta.gmtoffset : 19800;
         const nowMs = now();
@@ -435,7 +478,7 @@ export function createApp({
           },
           status: classifyHistoryStatus({
             intraday,
-            marketOpen: getMarketStatus(new Date(nowMs)).isOpen,
+            marketOpen: marketAt(nowMs).isOpen,
             lastBarMs: intraday ? (lastCandle.time - offsetSec) * 1000 : null,
             intervalMs: INTERVAL_MS[interval],
             nowMs,
@@ -478,9 +521,10 @@ export function createApp({
         return {
           body: chain,
           status: classifyOptionsStatus({
-            marketOpen: getMarketStatus(new Date(nowMs)).isOpen,
+            marketOpen: marketAt(nowMs).isOpen,
             asOfMs,
             nowMs,
+            market: marketAt(nowMs),
           }),
           provider: 'NSE',
           fetchedAt: new Date(nowMs).toISOString(),
@@ -522,7 +566,7 @@ export function createApp({
         const nowMs = now();
         return {
           body,
-          status: classifyQuoteStatus({ marketState: results[0].marketState, quoteTimeMs, nowMs }),
+          status: classifyQuoteStatus({ marketState: results[0].marketState, quoteTimeMs, nowMs, market: marketAt(nowMs) }),
           provider: 'Yahoo Finance',
           fetchedAt: new Date(nowMs).toISOString(),
           asOf: quoteTimeMs === null ? null : new Date(quoteTimeMs).toISOString(),
@@ -563,8 +607,9 @@ export function createApp({
     res.json({ connected: false });
   });
 
-  app.get('/api/market-status', (req, res) => {
-    res.json(getMarketStatus(new Date(now())));
+  app.get('/api/market-status', async (req, res) => {
+    await ensureHolidays();
+    res.json(marketAt(now()));
   });
 
   return { app, refreshNSECookies, breeze };
