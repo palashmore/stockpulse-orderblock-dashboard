@@ -37,6 +37,7 @@ export function scoreQuote(q) {
     price: q.price,
     changePct: q.changePct,
     score,
+    position,
     strength: Math.round(Math.abs(score) * 100),
     direction,
     relVolume: isNum(q.volume) && q.avgVolume > 0 ? q.volume / q.avgVolume : null,
