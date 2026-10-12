@@ -7,6 +7,8 @@ import SignalCards from './components/SignalCards';
 import MetricsBar from './components/MetricsBar';
 import Watchlist from './components/Watchlist';
 import OIAnalysisPanel from './components/OIAnalysisPanel';
+import RankedBoard from './components/RankedBoard';
+import { useNifty50 } from './hooks/useNifty50';
 import { DataStatusBadge, SimulationBanner, UnavailableState } from './components/DataStatusBadge';
 import {
   NIFTY_STOCKS,
@@ -28,11 +30,17 @@ import {
 } from './services/api';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('orderblock');
+  const [activeTab, setActiveTab] = useState(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    return ['dashboard', 'orderblock', 'screener', 'watchlist'].includes(tab) ? tab : 'orderblock';
+  });
   const [selectedStock, setSelectedStock] = useState(NIFTY_STOCKS[0]);
 
   // Simulated data is only used when explicitly requested with ?demo=1
   const [demoMode] = useState(() => isDemoModeRequested(window.location.search));
+
+  const nifty = useNifty50(demoMode);
+  const [screenerPanel, setScreenerPanel] = useState('board');
 
   // Real data state. backendUp is null until the first health check completes.
   const [backendUp, setBackendUp] = useState(null);
@@ -210,31 +218,58 @@ export default function App() {
   // Watchlist view
   const renderWatchlist = () => (
     <div className="flex-1 min-h-0 overflow-hidden">
-      <Watchlist onSelectStock={handleSelectStock} selectedStock={selectedStock} demoMode={demoMode} />
+      <Watchlist onSelectStock={handleSelectStock} selectedStock={selectedStock} nifty={nifty} />
     </div>
   );
 
-  // Screener view
-  const renderScreener = () => noData ? renderUnavailable() : (
+  // Screener view: chart plus the ranked board (or the full watchlist)
+  const renderScreener = () => (
     <div className="flex flex-1 min-h-0 overflow-hidden">
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 min-h-0">
-          <StockChart
-            candleData={candleData}
-            orderBlocks={orderBlocks}
-            stockSymbol={selectedStock.symbol}
-          />
+          {noData ? renderUnavailable() : (
+            <StockChart
+              candleData={candleData}
+              orderBlocks={orderBlocks}
+              stockSymbol={selectedStock.symbol}
+            />
+          )}
         </div>
       </div>
       <div
-        className="flex-shrink-0 overflow-hidden"
+        className="flex flex-col flex-shrink-0 overflow-hidden"
         style={{
-          width: '320px',
+          width: '340px',
           borderLeft: '1px solid rgba(30, 45, 61, 0.3)',
           backgroundColor: '#0d1117',
         }}
       >
-        <Watchlist onSelectStock={handleSelectStock} selectedStock={selectedStock} demoMode={demoMode} />
+        <div className="flex gap-1 px-3 py-2 flex-shrink-0" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.3)' }}>
+          {[['board', 'Bullish / Bearish'], ['watchlist', 'Watchlist']].map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setScreenerPanel(id)}
+              className={`px-2 py-1 text-xs rounded cursor-pointer ${
+                screenerPanel === id ? 'bg-green-500/15 text-green-400' : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {screenerPanel === 'board' ? (
+            <RankedBoard
+              nifty={nifty}
+              selectedStock={selectedStock}
+              onSelectStock={handleSelectStock}
+              candleData={candleData}
+              orderBlocks={orderBlocks}
+            />
+          ) : (
+            <Watchlist onSelectStock={handleSelectStock} selectedStock={selectedStock} nifty={nifty} />
+          )}
+        </div>
       </div>
     </div>
   );

@@ -1,65 +1,35 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { TrendingUp, TrendingDown, ArrowUpDown } from 'lucide-react';
-import { NIFTY_STOCKS, generateCandlestickData, getMarketMetrics } from '../data/stockData';
-import { fetchNifty50 } from '../services/api';
+import { NIFTY_STOCKS } from '../data/stockData';
 import { STATUS_META } from '../data/dataStatus';
 import { UnavailableState } from './DataStatusBadge';
 
-const REFRESH_MS = 60000;
 const SECTORS = Object.fromEntries(NIFTY_STOCKS.map((s) => [s.symbol, s.sector]));
 
-function quoteToMetrics(q) {
+function quoteToStock(q) {
   return {
-    price: q.price.toFixed(2),
-    changePct: (q.changePct ?? 0).toFixed(2),
-    isPositive: (q.change ?? 0) >= 0,
-    volume: q.volume ?? 0,
+    symbol: q.symbol,
+    name: q.name,
+    sector: SECTORS[q.symbol] || '',
+    metrics: {
+      price: q.price.toFixed(2),
+      changePct: (q.changePct ?? 0).toFixed(2),
+      isPositive: (q.change ?? 0) >= 0,
+      volume: q.volume ?? 0,
+    },
   };
 }
 
-// Real Nifty 50 quotes from the backend, or generated data only when demo mode is explicitly on.
-function useWatchlistData(demoMode) {
-  const [state, setState] = useState({ stocks: [], status: null, failed: false, loaded: false });
-
-  const load = useCallback(async () => {
-    const result = await fetchNifty50();
-    setState((prev) => {
-      if (!result) return { ...prev, failed: true, loaded: true };
-      const stocks = result.quotes.map((q) => ({
-        symbol: q.symbol,
-        name: q.name,
-        sector: SECTORS[q.symbol] || '',
-        metrics: quoteToMetrics(q),
-      }));
-      return { stocks, status: result.dataStatus, failed: false, loaded: true };
-    });
-  }, []);
-
-  useEffect(() => {
-    if (demoMode) return;
-    load();
-    const interval = setInterval(load, REFRESH_MS);
-    return () => clearInterval(interval);
-  }, [demoMode, load]);
-
-  const demoStocks = useMemo(() => {
-    if (!demoMode) return [];
-    return NIFTY_STOCKS.map((stock) => ({
-      ...stock,
-      metrics: getMarketMetrics(generateCandlestickData(stock.symbol, 30)),
-    }));
-  }, [demoMode]);
-
-  if (demoMode) return { stocks: demoStocks, status: 'SIMULATED', failed: false, loaded: true, retry: load };
-  return { ...state, retry: load };
-}
-
-export default function Watchlist({ onSelectStock, selectedStock, demoMode = false }) {
+export default function Watchlist({ onSelectStock, selectedStock, nifty }) {
   const [sortBy, setSortBy] = useState('symbol');
   const [sortDir, setSortDir] = useState('asc');
   const [filter, setFilter] = useState('all');
 
-  const { stocks: stocksWithMetrics, status, failed, loaded, retry } = useWatchlistData(demoMode);
+  const { quotes, status, failed, loaded, retry } = nifty;
+  const stocksWithMetrics = useMemo(
+    () => quotes.filter((q) => Number.isFinite(q.price)).map(quoteToStock),
+    [quotes]
+  );
 
   const filtered = useMemo(() => {
     let list = [...stocksWithMetrics];
