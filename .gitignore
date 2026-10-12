@@ -24,3 +24,8 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Local secrets (broker API key/secret)
+.env
+.env.*
+!.env.example

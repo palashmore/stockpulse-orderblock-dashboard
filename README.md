@@ -34,6 +34,19 @@
 
 ---
 
+## Data sources and status labels
+
+By default quotes and charts come from Yahoo Finance and are labeled `DELAYED` (or `HISTORICAL` when the market is closed). Every response carries a status: `LIVE`, `DELAYED`, `HISTORICAL`, `STALE`, `SIMULATED` or `UNAVAILABLE`. Simulated data appears only with `?demo=1`.
+
+### Optional: ICICI Direct (Breeze API) as a live source
+1. Register an app at https://api.icicidirect.com/apiuser/home with redirect URL `https://127.0.0.1`.
+2. Copy `.env.example` to `.env` and set `BREEZE_API_KEY` and `BREEZE_API_SECRET` (the file is git-ignored).
+3. Run `npm run dev:all`, open **Settings**, follow the sign-in steps (once a day), and paste the redirect address.
+
+Signed in, quotes and 1m / 5m / 30m / daily charts for mapped Nifty 50 stocks come from Breeze and are labeled `LIVE` only while the market is open and the exchange's last-trade time is under two minutes old. Anything else falls back to Yahoo. The integration is read-only (no orders). The Breeze request formats follow ICICI's published documentation and are tested with mocked responses; verify against your account.
+
+---
+
 ## 🚀 Quick Start Guide
 
 ### 1. Clone the repository

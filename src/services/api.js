@@ -80,3 +80,26 @@ export async function searchStocks(query) {
 export async function fetchMarketStatus() {
   return await apiFetch('/market-status');
 }
+
+// Broker sign-in (server runs on this machine; these calls are loopback-only)
+export async function fetchAuthStatus() {
+  return await apiFetch('/auth/status');
+}
+
+// Resolves { connected } on success or { connected: false, error } with the server's reason
+export async function submitBrokerSession(session) {
+  try {
+    const response = await fetch(`${API_BASE}/auth/breeze/session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session }),
+    });
+    return await response.json();
+  } catch {
+    return { connected: false, error: 'Could not reach the server' };
+  }
+}
+
+export async function disconnectBroker() {
+  return await apiFetch('/auth/breeze/disconnect', { method: 'POST' });
+}

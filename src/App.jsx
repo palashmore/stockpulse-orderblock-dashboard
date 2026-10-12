@@ -11,6 +11,7 @@ import RankedBoard from './components/RankedBoard';
 import MarketXRay from './components/MarketXRay';
 import AlertsPanel from './components/AlertsPanel';
 import ScannerPanel from './components/ScannerPanel';
+import SettingsPanel from './components/SettingsPanel';
 import { useAlerts } from './hooks/useAlerts';
 import { useNifty50 } from './hooks/useNifty50';
 import { getTimeframe, aggregateCandles } from './data/timeframes';
@@ -37,7 +38,7 @@ import {
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => {
     const tab = new URLSearchParams(window.location.search).get('tab');
-    return ['dashboard', 'orderblock', 'screener', 'watchlist', 'alerts', 'scanner'].includes(tab) ? tab : 'orderblock';
+    return ['dashboard', 'orderblock', 'screener', 'watchlist', 'alerts', 'scanner', 'settings'].includes(tab) ? tab : 'orderblock';
   });
   const [selectedStock, setSelectedStock] = useState(NIFTY_STOCKS[0]);
 
@@ -352,7 +353,7 @@ export default function App() {
       case 'alerts':
         return <AlertsPanel nifty={nifty} alertsApi={alertsApi} selectedStock={selectedStock} demoMode={demoMode} />;
       case 'settings':
-        return renderPlaceholder('Settings');
+        return <SettingsPanel demoMode={demoMode} headlineStatus={headlineStatus} onConnectionChange={retry} />;
       default:
         return renderDashboard();
     }

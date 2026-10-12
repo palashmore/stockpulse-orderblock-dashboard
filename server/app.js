@@ -7,10 +7,20 @@ import {
   classifyQuoteStatus,
   classifyOptionsStatus,
   classifyHistoryStatus,
+  classifyLiveQuoteStatus,
+  classifyLiveHistoryStatus,
   parseNseTimestamp,
 } from './dataStatus.js';
 import { buildOptionsChain } from './options.js';
 import { createRateLimiter, createConcurrencyLimiter } from './limits.js';
+import {
+  createBreezeClient,
+  breezeCodeFor,
+  extractSessionToken,
+  loginUrl,
+  parseBreezeTime,
+  BREEZE_INTERVALS,
+} from './breeze.js';
 import {
   isValidSymbol,
   isValidRange,
@@ -32,7 +42,8 @@ const POLICY = {
   historyIntraday: { ttl: 60 * 1000, maxStale: 60 * MINUTE },
 };
 
-const INTERVAL_MS = { '1m': 60e3, '2m': 120e3, '5m': 300e3, '15m': 900e3, '30m': 1800e3, '60m': 3600e3, '1h': 3600e3, '90m': 5400e3 };
+const RANGE_DAYS = { '1d': 1, '5d': 5, '1mo': 31, '3mo': 93, '6mo': 186, '1y': 366, '2y': 731, '5y': 1827 };
+const INTERVAL_MS = { '1d': 86400e3, '1m': 60e3, '2m': 120e3, '5m': 300e3, '15m': 900e3, '30m': 1800e3, '60m': 3600e3, '1h': 3600e3, '90m': 5400e3 };
 
 const YAHOO_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -77,6 +88,7 @@ export function createApp({
   retryDelayMs = 1000,
   rateLimit = { windowMs: 60_000, max: Number(process.env.RATE_LIMIT_PER_MIN) || 120 },
   upstreamConcurrency = Number(process.env.UPSTREAM_CONCURRENCY) || 4,
+  breeze = createBreezeClient({ appKey: process.env.BREEZE_API_KEY, secret: process.env.BREEZE_API_SECRET }),
 } = {}) {
   const app = express();
   // At most `upstreamConcurrency` provider requests in flight; the rest queue.
@@ -191,6 +203,61 @@ export function createApp({
     return symbol;
   };
 
+  // ============ BROKER FEED (ICICI Direct Breeze) ============
+  // Used when the user has signed in and the symbol is mapped. Any failure falls back to Yahoo,
+  // and every response names its provider, so the two feeds are never silently mixed.
+
+  async function brokerQuote(symbol) {
+    const code = breeze.isConnected() ? breezeCodeFor(symbol) : null;
+    if (!code) return null;
+    try {
+      const quote = await breeze.getQuote(code, symbol);
+      const nowMs = now();
+      const lastTradeMs = parseBreezeTime(quote.lastTradeTime);
+      const body = { ...quote };
+      delete body.lastTradeTime;
+      return {
+        body: { ...body, timestamp: lastTradeMs === null ? null : Math.floor(lastTradeMs / 1000) },
+        status: classifyLiveQuoteStatus({ marketOpen: getMarketStatus(new Date(nowMs)).isOpen, lastTradeMs, nowMs }),
+        provider: 'ICICI Direct Breeze',
+        fetchedAt: new Date(nowMs).toISOString(),
+        asOf: lastTradeMs === null ? null : new Date(lastTradeMs).toISOString(),
+      };
+    } catch (error) {
+      console.error('Breeze quote error:', error.message);
+      return null;
+    }
+  }
+
+  async function brokerHistory(symbol, range, interval) {
+    const code = breeze.isConnected() ? breezeCodeFor(symbol) : null;
+    const days = RANGE_DAYS[range];
+    if (!code || !BREEZE_INTERVALS[interval] || days === undefined) return null;
+    try {
+      const nowMs = now();
+      const intraday = interval !== '1d';
+      const candles = await breeze.getHistory(code, interval, nowMs - days * 86400000, nowMs);
+      const last = candles[candles.length - 1];
+      const lastBarMs = intraday ? (last.time - 19800) * 1000 : null;
+      return {
+        body: { symbol, currency: 'INR', exchange: 'NSE', candles },
+        status: classifyLiveHistoryStatus({
+          intraday,
+          marketOpen: getMarketStatus(new Date(nowMs)).isOpen,
+          lastBarMs,
+          intervalMs: INTERVAL_MS[interval],
+          nowMs,
+        }),
+        provider: 'ICICI Direct Breeze',
+        fetchedAt: new Date(nowMs).toISOString(),
+        asOf: intraday ? new Date(lastBarMs).toISOString() : last.time,
+      };
+    } catch (error) {
+      console.error('Breeze history error:', error.message);
+      return null;
+    }
+  }
+
   // ============ ROUTES ============
 
   app.get('/api/health', (req, res) => {
@@ -242,6 +309,8 @@ export function createApp({
       key: `quote_${yahooSymbol}`,
       policy: POLICY.quote,
       load: async () => {
+        const viaBroker = await brokerQuote(symbol);
+        if (viaBroker) return viaBroker;
         const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(yahooSymbol)}`;
         const data = await fetchJson(url, YAHOO_HEADERS);
 
@@ -302,6 +371,8 @@ export function createApp({
       key: `history_${yahooSymbol}_${range}_${interval}`,
       policy: intraday ? POLICY.historyIntraday : POLICY.history,
       load: async () => {
+        const viaBroker = await brokerHistory(symbol, range, interval);
+        if (viaBroker) return viaBroker;
         const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=${range}&interval=${interval}&includeAdjustedClose=true`;
         const data = await fetchJson(url, YAHOO_HEADERS);
 
@@ -426,9 +497,41 @@ export function createApp({
     });
   });
 
+  // ---- broker sign-in (local machine only: these endpoints change which account feeds the app)
+  const isLoopback = (req) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
+  const localOnly = (req, res, next) => (isLoopback(req)
+    ? next()
+    : res.status(403).json({ error: 'Broker sign-in is only available from the machine running the server' }));
+
+  app.get('/api/auth/status', localOnly, (req, res) => {
+    res.json({
+      broker: 'ICICI Direct Breeze',
+      configured: breeze.configured,
+      connected: breeze.isConnected(),
+      connectedAt: breeze.connectedAt() ? new Date(breeze.connectedAt()).toISOString() : null,
+      loginUrl: breeze.configured ? loginUrl(process.env.BREEZE_API_KEY) : null,
+    });
+  });
+
+  app.post('/api/auth/breeze/session', localOnly, async (req, res) => {
+    const session = extractSessionToken(req.body?.session);
+    if (!session) return res.status(400).json({ error: 'Paste the redirect address (or its apisession value) after signing in' });
+    try {
+      await breeze.connect(session);
+      res.json({ connected: true });
+    } catch (error) {
+      res.status(502).json({ connected: false, error: error.message });
+    }
+  });
+
+  app.post('/api/auth/breeze/disconnect', localOnly, (req, res) => {
+    breeze.disconnect();
+    res.json({ connected: false });
+  });
+
   app.get('/api/market-status', (req, res) => {
     res.json(getMarketStatus(new Date(now())));
   });
 
-  return { app, refreshNSECookies };
+  return { app, refreshNSECookies, breeze };
 }

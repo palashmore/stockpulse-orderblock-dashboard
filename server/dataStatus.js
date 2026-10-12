@@ -68,6 +68,24 @@ export function classifyHistoryStatus({ intraday, marketOpen, lastBarMs, interva
   return nowMs - lastBarMs > intervalMs + MAX_IN_SESSION_AGE_MS ? DATA_STATUS.STALE : DATA_STATUS.DELAYED;
 }
 
+// A broker feed may be called LIVE only while the session is open AND the provider's own
+// timestamp is fresh. Anything we cannot verify stays at the weaker label.
+export const LIVE_QUOTE_MAX_AGE_MS = 2 * 60 * 1000;
+
+/** Status of a broker quote from the session clock and the exchange's last-trade time. */
+export function classifyLiveQuoteStatus({ marketOpen, lastTradeMs, nowMs }) {
+  if (!marketOpen) return DATA_STATUS.HISTORICAL;
+  if (!Number.isFinite(lastTradeMs)) return DATA_STATUS.DELAYED;
+  return nowMs - lastTradeMs <= LIVE_QUOTE_MAX_AGE_MS ? DATA_STATUS.LIVE : DATA_STATUS.STALE;
+}
+
+/** Status of broker history: LIVE only when the newest intraday bar is current. */
+export function classifyLiveHistoryStatus({ intraday, marketOpen, lastBarMs, intervalMs, nowMs }) {
+  if (!intraday || !marketOpen) return DATA_STATUS.HISTORICAL;
+  if (!Number.isFinite(lastBarMs)) return DATA_STATUS.DELAYED;
+  return nowMs - lastBarMs <= intervalMs + 60 * 1000 ? DATA_STATUS.LIVE : DATA_STATUS.STALE;
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** Parse NSE's "DD-Mon-YYYY HH:mm:ss" (IST) timestamp to epoch ms, or null. */

@@ -1,0 +1,207 @@
+import { createHash } from 'node:crypto';
+import https from 'node:https';
+import { BREEZE_STOCK_CODES } from './breezeCodes.js';
+
+// ICICI Direct Breeze API client (read-only market data: quotes and historical candles).
+// Request/response shapes follow ICICI's published Breeze HTTP API documentation and are covered
+// by mocked tests only; they have not been run against the live service.
+const HOST = 'api.icicidirect.com';
+const BASE_PATH = '/breezeapi/api/v1';
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+export const BREEZE_INTERVALS = { '1m': '1minute', '5m': '5minute', '30m': '30minute', '1d': '1day' };
+
+/** Breeze stock code for an NSE symbol, or null when the symbol is not mapped. */
+export function breezeCodeFor(symbol) {
+  return BREEZE_STOCK_CODES[symbol] || null;
+}
+
+export function loginUrl(appKey) {
+  return `https://${HOST}/apiuser/login?api_key=${encodeURIComponent(appKey)}`;
+}
+
+/** Pull the session value out of whatever the user pasted: the redirect URL, `apisession=...`, or the bare value. */
+export function extractSessionToken(input) {
+  const text = String(input || '').trim();
+  if (!text) return null;
+  const param = /[?&#]?(?:api_?session)=([^&#\s]+)/i.exec(text);
+  if (param) return decodeURIComponent(param[1]);
+  return /^[A-Za-z0-9+/=_-]{4,}$/.test(text) ? text : null;
+}
+
+/** SHA-256 checksum Breeze expects: hex(sha256(timestamp + body + secret)). */
+export function computeChecksum(timestamp, body, secret) {
+  return createHash('sha256').update(timestamp + body + secret).digest('hex');
+}
+
+/** UTC timestamp with zero milliseconds, as Breeze requires: 2025-02-03T09:20:56.000Z. */
+export function breezeTimestamp(nowMs) {
+  return `${new Date(nowMs).toISOString().slice(0, 19)}.000Z`;
+}
+
+/** Date formatted as IST wall-clock time labelled Z, the form used in Breeze's request examples. */
+export function istWallClock(ms) {
+  return `${new Date(ms + IST_OFFSET_MS).toISOString().slice(0, 19)}.000Z`;
+}
+
+/** Real transport. Breeze uses GET requests that carry a JSON body, which fetch() forbids. */
+export function httpsRequest({ method, path, headers, body }) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      { host: HOST, method, path, headers: { ...headers, 'Content-Length': Buffer.byteLength(body) }, timeout: 10000 },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          let json = null;
+          try { json = JSON.parse(text); } catch { /* non-JSON error page */ }
+          resolve({ status: res.statusCode, json, text });
+        });
+      }
+    );
+    req.on('timeout', () => req.destroy(new Error('Breeze request timed out')));
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+const num = (v) => {
+  const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+  return typeof n === 'number' && Number.isFinite(n) ? n : null;
+};
+
+/** Parse "YYYY-MM-DD HH:mm:ss" or ISO text as IST wall-clock into epoch ms, or null. */
+export function parseBreezeTime(text) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}):(\d{2}))?/.exec(String(text || '').trim());
+  if (!m) return null;
+  const [, y, mo, d, hh = '0', mm = '0', ss = '0'] = m;
+  return Date.UTC(+y, +mo - 1, +d, +hh, +mm, +ss) - IST_OFFSET_MS;
+}
+
+/** Map a Breeze quote row to the app's quote shape. Returns null when there is no usable price. */
+export function mapQuote(row, symbol) {
+  const price = num(row?.ltp);
+  if (price === null) return null;
+  const previousClose = num(row.previous_close);
+  return {
+    symbol,
+    name: symbol,
+    price,
+    previousClose,
+    open: num(row.open),
+    high: num(row.high),
+    low: num(row.low),
+    close: price,
+    change: previousClose === null ? null : price - previousClose,
+    changePct: num(row.ltp_percent_change),
+    volume: num(row.total_quantity_traded),
+    exchange: 'NSE',
+    currency: 'INR',
+    lastTradeTime: row.ltt ?? null,
+  };
+}
+
+/**
+ * Map Breeze candles to the app's candle shape and apply the same validation as the Yahoo path.
+ * Intraday candles use exchange wall-clock epoch seconds; daily candles use the calendar date.
+ */
+export function mapCandles(rows, intraday) {
+  const out = [];
+  let last = null;
+  for (const r of rows || []) {
+    const open = num(r.open);
+    const high = num(r.high);
+    const low = num(r.low);
+    const close = num(r.close);
+    if ([open, high, low, close].some((v) => v === null)) continue;
+    if (!(low > 0 && high >= low && high >= Math.max(open, close) && low <= Math.min(open, close))) continue;
+    const ms = parseBreezeTime(r.datetime);
+    if (ms === null) continue;
+    const time = intraday ? Math.floor((ms + IST_OFFSET_MS) / 1000) : new Date(ms + IST_OFFSET_MS).toISOString().slice(0, 10);
+    if (last !== null && time <= last) continue;
+    last = time;
+    const volume = num(r.volume);
+    out.push({ time, open, high, low, close, volume, adjClose: null });
+  }
+  return out;
+}
+
+/**
+ * `request` and `now` are injectable for tests. The session lives in memory only: it is set by
+ * connect() after the user signs in, and is cleared when the provider rejects it.
+ */
+export function createBreezeClient({ appKey, secret, request = httpsRequest, now = Date.now } = {}) {
+  let sessionToken = null;
+  let connectedAt = null;
+
+  const configured = Boolean(appKey && secret);
+
+  async function call(method, endpoint, payload, { authenticated = true } = {}) {
+    const body = JSON.stringify(payload);
+    const timestamp = breezeTimestamp(now());
+    const headers = { 'Content-Type': 'application/json' };
+    if (authenticated) {
+      headers['X-Checksum'] = `token ${computeChecksum(timestamp, body, secret)}`;
+      headers['X-Timestamp'] = timestamp;
+      headers['X-AppKey'] = appKey;
+      headers['X-SessionToken'] = sessionToken;
+    }
+    const res = await request({ method, path: `${BASE_PATH}/${endpoint}`, headers, body });
+    const rejected = res.status === 401 || res.status === 403 || (res.json && String(res.json.Status) === '401');
+    if (authenticated && rejected) {
+      sessionToken = null;
+      connectedAt = null;
+      throw new Error('Breeze session expired; sign in again');
+    }
+    if (res.status >= 500 || !res.json) throw new Error(`Breeze HTTP ${res.status}`);
+    if (res.json.Error && !res.json.Success) throw new Error(`Breeze: ${res.json.Error}`);
+    return res.json;
+  }
+
+  return {
+    configured,
+    isConnected: () => sessionToken !== null,
+    connectedAt: () => connectedAt,
+
+    /** Exchange the one-time API session from the login redirect for a session token. */
+    async connect(apiSession) {
+      if (!configured) throw new Error('Breeze API key and secret are not configured');
+      const json = await call('GET', 'customerdetails', { SessionToken: apiSession, AppKey: appKey }, { authenticated: false });
+      const token = json.Success?.session_token;
+      if (!token) throw new Error(`Breeze did not return a session${json.Error ? `: ${json.Error}` : ''}`);
+      sessionToken = token;
+      connectedAt = now();
+    },
+
+    disconnect() {
+      sessionToken = null;
+      connectedAt = null;
+    },
+
+    async getQuote(stockCode, symbol) {
+      const json = await call('GET', 'quotes', {
+        stock_code: stockCode, exchange_code: 'NSE', expiry_date: '', product_type: 'cash', right: '', strike_price: '',
+      });
+      const quote = mapQuote(Array.isArray(json.Success) ? json.Success[0] : null, symbol);
+      if (!quote) throw new Error('Breeze returned no usable quote');
+      return quote;
+    },
+
+    async getHistory(stockCode, interval, fromMs, toMs) {
+      const breezeInterval = BREEZE_INTERVALS[interval];
+      if (!breezeInterval) throw new Error(`Unsupported Breeze interval ${interval}`);
+      const json = await call('GET', 'historicalcharts', {
+        interval: breezeInterval,
+        from_date: istWallClock(fromMs),
+        to_date: istWallClock(toMs),
+        stock_code: stockCode,
+        exchange_code: 'NSE',
+        product_type: 'cash',
+      });
+      const candles = mapCandles(json.Success, interval !== '1d');
+      if (candles.length === 0) throw new Error('Breeze returned no usable candles');
+      return candles;
+    },
+  };
+}
