@@ -58,6 +58,11 @@ export function UnavailableState({ status, loading, onRetry }) {
                 Retry
               </button>
             )}
+            <p className="text-[11px] text-gray-600 mt-4">
+              Common cause: a company or school network blocking Yahoo Finance. Try another network (such as a phone hotspot),{' '}
+              <a href="?tab=settings" className="underline" style={{ color: '#00e5ff' }}>connect your broker in Settings</a>, or{' '}
+              <a href="?demo=1" className="underline" style={{ color: '#ff9100' }}>view simulated sample data</a>.
+            </p>
           </>
         )}
       </div>
