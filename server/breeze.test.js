@@ -167,6 +167,36 @@ describe('client', () => {
     expect(JSON.parse(req.body)).toMatchObject({ stock_code: 'RELIND', exchange_code: 'NSE', product_type: 'cash' });
   });
 
+  it('sends requests one at a time even when many are started together', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    respond = async (req) => {
+      if (req.path.endsWith('customerdetails')) return { status: 200, json: { Success: { session_token: 'TOKEN' } } };
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      return { status: 200, json: { Success: [{ ltp: 1 }] } };
+    };
+    const client = make();
+    await client.connect('S');
+    await Promise.all([1, 2, 3, 4, 5].map(() => client.getQuote('X', 'X')));
+    expect(peak).toBe(1);
+  });
+
+  it('a failed call does not block the ones queued behind it', async () => {
+    let n = 0;
+    respond = (req) => {
+      if (req.path.endsWith('customerdetails')) return { status: 200, json: { Success: { session_token: 'TOKEN' } } };
+      n++;
+      return n === 1 ? { status: 503, json: null } : { status: 200, json: { Success: [{ ltp: 7 }] } };
+    };
+    const client = make();
+    await client.connect('S');
+    const results = await Promise.allSettled([client.getQuote('X', 'X'), client.getQuote('X', 'X')]);
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'fulfilled']);
+  });
+
   it('keeps the session after a single HTTP 401 and drops it after repeated ones', async () => {
     respond = (req) => (req.path.endsWith('customerdetails')
       ? { status: 200, json: { Success: { session_token: 'TOKEN' } } }

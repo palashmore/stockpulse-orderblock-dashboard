@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { fetchBroker } from '../services/api';
+import { loadSettings } from '../data/settings';
 
 const GREEN = '#00e676';
 const RED = '#ff1744';
@@ -167,6 +168,73 @@ function Trades({ data }) {
   );
 }
 
+function Line({ label, value, color }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-1" style={{ borderTop: '1px solid rgba(30, 45, 61, 0.2)' }}>
+      <span className="text-[11px] text-gray-500">{label}</span>
+      <span className="text-xs font-mono text-right" style={{ color: color || '#d1d5db' }}>{value}</span>
+    </div>
+  );
+}
+
+function FundsMargin({ data }) {
+  const [hidden, setHidden] = useState(() => loadSettings(window.localStorage).hideAmounts);
+  const m = (v) => (hidden ? '••••••' : inr(v));
+  const f = data.funds;
+  const card = { border: '1px solid rgba(30, 45, 61, 0.5)', backgroundColor: 'rgba(17, 24, 39, 0.5)' };
+
+  return (
+    <div className="px-4 py-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] text-gray-500">All figures below are as reported by ICICI Direct unless marked calculated.</p>
+        <button onClick={() => setHidden((h) => !h)} className="px-2 py-1 text-xs rounded bg-white/5 text-gray-300 hover:bg-white/10 cursor-pointer">{hidden ? 'Show amounts' : 'Hide amounts'}</button>
+      </div>
+
+      {data.fundsError && <p className="text-xs" style={{ color: RED }}>Funds could not be read: {data.fundsError}</p>}
+      {f && (
+        <section className="rounded-md px-4 py-3" style={card}>
+          <h3 className="text-xs font-semibold text-gray-300 mb-1">Funds{f.bankAccountLast4 ? ` · bank a/c ••${f.bankAccountLast4}` : ''}</h3>
+          <Line label="Total bank balance" value={m(f.totalBankBalance)} />
+          <Line label="Unallocated balance" value={m(f.unallocatedBalance)} color={GREEN} />
+          <Line label="Blocked by trades (all segments)" value={m(f.blockedByTrade.total)} />
+          <Table head={[['Segment'], ['Allocated', 'right'], ['Blocked by trades', 'right']]}>
+            {[['Equity', 'equity'], ['Futures & options', 'fno'], ['Commodity', 'commodity'], ['Currency', 'currency']].map(([label, k]) => (
+              <tr key={k} style={{ borderTop: '1px solid rgba(30, 45, 61, 0.2)' }}>
+                <td className={td}>{label}</td>
+                <td className={`${td} text-right font-mono`}>{m(f.allocated[k])}</td>
+                <td className={`${td} text-right font-mono`}>{m(f.blockedByTrade[k])}</td>
+              </tr>
+            ))}
+          </Table>
+          <Line label="Sum of the four allocations (calculated here)" value={f.derived.totalAllocated === null ? 'not calculable' : m(f.derived.totalAllocated)} />
+        </section>
+      )}
+
+      <div className="grid gap-3 md:grid-cols-2">
+        {data.margins.map((mg, i) => (
+          <section key={i} className="rounded-md px-4 py-3" style={card}>
+            <h3 className="text-xs font-semibold text-gray-300 mb-1">Margin · {i === 0 ? 'NSE (cash)' : 'NFO (futures & options)'}</h3>
+            {mg ? (
+              <>
+                <Line label="Cash limit" value={m(mg.cashLimit)} />
+                <Line label="Amount allocated" value={m(mg.amountAllocated)} />
+                <Line label="Blocked by trades" value={m(mg.blockByTrade)} />
+                <Line label="ICICI Securities margin" value={m(mg.isecMargin)} />
+                {mg.limitListCount !== null && <Line label="Limit entries returned" value={mg.limitListCount} />}
+              </>
+            ) : <p className="text-xs text-gray-500">Not available{data.marginErrors[i] ? `: ${data.marginErrors[i]}` : '.'}</p>}
+          </section>
+        ))}
+      </div>
+
+      <p className="text-[10px] text-gray-600">
+        &quot;Available to trade&quot; is deliberately not shown as one number: ICICI does not document how these fields combine into a single buying power, and guessing could mislead you.
+        Check the margin screen in your ICICI Direct app for the figure it will use on an order.
+      </p>
+    </div>
+  );
+}
+
 function Depth({ symbol }) {
   const [d, setD] = useState(null);
   useEffect(() => {
@@ -209,7 +277,8 @@ function Depth({ symbol }) {
   );
 }
 
-const TABS = [['positions', 'Positions'], ['orders', 'Order Book'], ['trades', 'Trade Book']];
+const TABS = [['positions', 'Positions'], ['orders', 'Order Book'], ['trades', 'Trade Book'], ['funds', 'Funds & Margin']];
+const UNDATED = new Set(['positions', 'funds']);
 
 // Read-only views of your ICICI Direct account. Nothing here can place, change or cancel an order.
 export default function BrokerBooks({ initialTab = 'positions', selectedStock }) {
@@ -218,8 +287,8 @@ export default function BrokerBooks({ initialTab = 'positions', selectedStock })
   const [to, setTo] = useState(today());
   // Each result remembers which tab and dates it belongs to, so a tab never renders another tab's data
   const [state, setState] = useState({ key: '', status: 'idle', data: null, error: '' });
-  const key = tab === 'positions' ? 'positions' : `${tab}|${from}|${to}`;
-  const pathFor = () => (tab === 'positions' ? '/positions' : `/${tab}?from=${from}&to=${to}`);
+  const key = UNDATED.has(tab) ? tab : `${tab}|${from}|${to}`;
+  const pathFor = () => (UNDATED.has(tab) ? `/${tab}` : `/${tab}?from=${from}&to=${to}`);
 
   const load = useCallback(async () => {
     setState({ key, status: 'loading', data: null, error: '' });
@@ -252,7 +321,7 @@ export default function BrokerBooks({ initialTab = 'positions', selectedStock })
           <button key={id} onClick={() => setTab(id)} className={`px-3 py-1 text-xs rounded cursor-pointer ${tab === id ? 'bg-green-500/15 text-green-400' : 'text-gray-500 hover:text-gray-300'}`}>{label}</button>
         ))}
         <div className="flex-1" />
-        {tab !== 'positions' && (
+        {!UNDATED.has(tab) && (
           <>
             <button onClick={() => range(today(), today())} className="px-2 py-1 text-[11px] rounded bg-white/5 text-gray-400 hover:text-gray-200 cursor-pointer">Today</button>
             <button onClick={() => range(daysAgo(4), today())} className="px-2 py-1 text-[11px] rounded bg-white/5 text-gray-400 hover:text-gray-200 cursor-pointer">5 days</button>
@@ -275,6 +344,7 @@ export default function BrokerBooks({ initialTab = 'positions', selectedStock })
       {data && tab === 'positions' && <Positions data={data} />}
       {data && tab === 'orders' && <Orders data={data} />}
       {data && tab === 'trades' && <Trades data={data} />}
+      {data && tab === 'funds' && <FundsMargin data={data} />}
       {data && <p className="px-4 pb-2 text-[10px] text-gray-600">{data.provider} · fetched {new Date(data.fetchedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · refreshed on demand</p>}
 
       {tab === 'orders' && <div style={{ borderTop: '1px solid rgba(30, 45, 61, 0.3)' }}><Depth symbol={selectedStock.symbol} /></div>}

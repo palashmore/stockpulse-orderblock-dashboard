@@ -204,3 +204,46 @@ export function depthSummary(levels) {
   if (!top || top.bidPrice === null || top.askPrice === null || !(top.bidPrice > 0) || !(top.askPrice > 0)) return null;
   return { bestBid: top.bidPrice, bestAsk: top.askPrice, spread: Math.round((top.askPrice - top.bidPrice) * 1e4) / 1e4, spreadPct: ((top.askPrice - top.bidPrice) / top.askPrice) * 100 };
 }
+
+/** Last four digits of the bank account; the full number never leaves the server. */
+const last4 = (v) => {
+  const digits = String(v ?? '').replace(/\D/g, '');
+  return digits.length >= 4 ? digits.slice(-4) : null;
+};
+
+/**
+ * Funds as ICICI reports them (GetFunds), with every documented field. The only figure worked out
+ * here is the sum of the four segment allocations, placed under `derived`.
+ */
+export function mapFundsDetail(r) {
+  if (!r || typeof r !== 'object') return null;
+  const allocated = { equity: num(r.allocated_equity), fno: num(r.allocated_fno), commodity: num(r.allocated_commodity), currency: num(r.allocated_currency) };
+  const parts = Object.values(allocated);
+  return {
+    bankAccountLast4: last4(r.bank_account),
+    totalBankBalance: num(r.total_bank_balance),
+    allocated,
+    blockedByTrade: {
+      equity: num(r.block_by_trade_equity),
+      fno: num(r.block_by_trade_fno),
+      commodity: num(r.block_by_trade_commodity),
+      currency: num(r.block_by_trade_currency),
+      total: num(r.block_by_trade_balance),
+    },
+    unallocatedBalance: num(r.unallocated_balance),
+    derived: { totalAllocated: parts.every((p) => p !== null) ? Math.round(parts.reduce((s, p) => s + p, 0) * 100) / 100 : null },
+  };
+}
+
+/** Margin for one exchange (GetMargins), as reported. `limitListCount` is only how many entries came back. */
+export function mapMargin(r, exchange) {
+  if (!r || typeof r !== 'object') return null;
+  return {
+    exchange,
+    cashLimit: num(r.cash_limit),
+    amountAllocated: num(r.amount_allocated),
+    blockByTrade: num(r.block_by_trade),
+    isecMargin: num(r.isec_margin),
+    limitListCount: Array.isArray(r.limit_list) ? r.limit_list.length : null,
+  };
+}

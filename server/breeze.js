@@ -194,7 +194,16 @@ export function createBreezeClient({ appKey, secret, request = httpsRequest, now
 
   const configured = Boolean(appKey && secret);
 
-  async function call(method, endpoint, payload, { authenticated = true } = {}) {
+  // ICICI answers HTTP 401/503 when several signed requests arrive at once (seen on the live service),
+  // so every call goes through a one-at-a-time queue.
+  let queue = Promise.resolve();
+  function call(method, endpoint, payload, options) {
+    const run = queue.then(() => callNow(method, endpoint, payload, options));
+    queue = run.catch(() => {});
+    return run;
+  }
+
+  async function callNow(method, endpoint, payload, { authenticated = true } = {}) {
     if (!budget.take()) throw new Error('Breeze request budget used up for now (ICICI limits: 100/minute, 5,000/day)');
     const body = JSON.stringify(payload);
     const timestamp = breezeTimestamp(now());
@@ -273,6 +282,12 @@ export function createBreezeClient({ appKey, secret, request = httpsRequest, now
     async getFunds() {
       const json = await call('GET', 'funds', {});
       return json.Success && typeof json.Success === 'object' ? json.Success : null;
+    },
+
+    /** Margin for one exchange ('NSE' or 'NFO'). Returns the reported object, or null when ICICI sends none. */
+    async getMargin(exchangeCode) {
+      const json = await call('GET', 'margin', { exchange_code: exchangeCode });
+      return json.Success && typeof json.Success === 'object' && !Array.isArray(json.Success) ? json.Success : null;
     },
 
     async getDematHoldings() {

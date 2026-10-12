@@ -15,6 +15,7 @@ import { loadSecurityMaster } from './securityMaster.js';
 import { buildPortfolio, mapFunds } from './portfolio.js';
 import {
   isEmptyResult, parseWindow, mapOrder, mapTrade, mapTradeDetail, mapPosition, realisedRoundTrips, orderSummary, depthSummary,
+  mapFundsDetail, mapMargin,
 } from './brokerBooks.js';
 import { depthKey } from './breezeStream.js';
 import { istDateKey } from './marketCalendar.js';
@@ -808,6 +809,36 @@ export function createApp({
     try {
       const body = await book('positions', () => breeze.getPositions());
       res.json({ positions: body.rows.map(mapPosition), fetchedAt: body.fetchedAt, provider: 'ICICI Direct Breeze' });
+    } catch (error) { brokerFail(res, error); }
+  });
+
+  // Funds and margin as ICICI reports them. Margin is per exchange; a missing piece is reported as such
+  // rather than failing the whole page.
+  app.get('/api/broker/funds', localOnly, brokerGuard, async (req, res) => {
+    try {
+      const optional = async (key, loader) => {
+        try {
+          return { ok: true, value: (await book(key, async () => { const v = await loader(); return v ? [v] : []; })).rows[0] ?? null };
+        } catch (error) {
+          if (/session expired/i.test(error.message)) throw error;
+          recordError('broker-funds', error.message);
+          return { ok: false, error: error.message };
+        }
+      };
+      const [funds, nse, nfo] = await Promise.all([
+        optional('funds', () => breeze.getFunds()),
+        optional('margin|NSE', () => breeze.getMargin('NSE')),
+        optional('margin|NFO', () => breeze.getMargin('NFO')),
+      ]);
+      if (!funds.ok && !nse.ok && !nfo.ok) return brokerFail(res, new Error(funds.error));
+      res.json({
+        funds: funds.ok ? mapFundsDetail(funds.value) : null,
+        fundsError: funds.ok ? null : funds.error,
+        margins: [nse, nfo].map((m, i) => (m.ok ? mapMargin(m.value, i === 0 ? 'NSE' : 'NFO') : null)),
+        marginErrors: [nse, nfo].map((m) => (m.ok ? null : m.error)),
+        fetchedAt: new Date(now()).toISOString(),
+        provider: 'ICICI Direct Breeze',
+      });
     } catch (error) { brokerFail(res, error); }
   });
 

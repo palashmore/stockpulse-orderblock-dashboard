@@ -221,3 +221,80 @@ describe('/api/broker endpoints', () => {
     expect(depthKey('2885')).toBe('4.2!2885');
   });
 });
+
+describe('funds and margin', () => {
+  const rawFunds = { bank_account: '123456789012', total_bank_balance: '1000', allocated_equity: '300', allocated_fno: '200', allocated_commodity: '0', allocated_currency: '0', block_by_trade_equity: '10', block_by_trade_fno: '5', block_by_trade_commodity: '0', block_by_trade_currency: '0', block_by_trade_balance: '15', unallocated_balance: '500' };
+
+  it('maps every documented funds field and masks the account number', async () => {
+    const { mapFundsDetail } = await import('./brokerBooks.js');
+    const f = mapFundsDetail(rawFunds);
+    expect(f).toMatchObject({ bankAccountLast4: '9012', totalBankBalance: 1000, unallocatedBalance: 500, allocated: { equity: 300, fno: 200, commodity: 0, currency: 0 }, blockedByTrade: { equity: 10, fno: 5, total: 15 } });
+    expect(f.derived.totalAllocated).toBe(500);
+    expect(JSON.stringify(f)).not.toContain('123456789012');
+  });
+
+  it('does not total the allocations when one is missing', async () => {
+    const { mapFundsDetail } = await import('./brokerBooks.js');
+    expect(mapFundsDetail({ ...rawFunds, allocated_fno: undefined }).derived.totalAllocated).toBeNull();
+    expect(mapFundsDetail(null)).toBeNull();
+  });
+
+  it('maps margin as reported and counts the limit list without inventing its content', async () => {
+    const { mapMargin } = await import('./brokerBooks.js');
+    expect(mapMargin({ cash_limit: '1000', amount_allocated: 100, block_by_trade: 0, isec_margin: '5', limit_list: [{}, {}] }, 'NSE')).toEqual({ exchange: 'NSE', cashLimit: 1000, amountAllocated: 100, blockByTrade: 0, isecMargin: 5, limitListCount: 2 });
+    expect(mapMargin({}, 'NFO').limitListCount).toBeNull();
+    expect(mapMargin(null, 'NFO')).toBeNull();
+  });
+});
+
+describe('/api/broker/funds endpoint', () => {
+  let server;
+  let base;
+  afterEach(() => new Promise((resolve) => server.close(resolve)));
+
+  async function start(reply) {
+    const clock = () => Date.UTC(2026, 9, 12, 5, 30);
+    const breeze = createBreezeClient({
+      appKey: 'K', secret: 'S', now: clock,
+      request: async (req) => (req.path.endsWith('customerdetails')
+        ? { status: 200, json: { Success: { session_token: Buffer.from('U:T').toString('base64') } } }
+        : reply(req)),
+    });
+    await breeze.connect('S');
+    const hub = createStreamHub({ now: clock, ioFactory: () => ({ on() {}, emit() {}, close() {}, removeAllListeners() {} }) });
+    const { app } = createApp({ fetchFn: async () => new Response('{}'), now: clock, breeze, streamHub: hub, loadMaster: async () => parseNseMaster('"Token","ShortName","Series","CompanyName","ISINCode","ExchangeCode"') });
+    await new Promise((resolve) => { server = app.listen(0, '127.0.0.1', resolve); });
+    base = `http://127.0.0.1:${server.address().port}/api`;
+  }
+
+  it('returns funds and both margins as reported, with the bank account masked', async () => {
+    await start((req) => {
+      if (req.path.endsWith('/funds')) return { status: 200, json: { Success: { bank_account: '123456789012', total_bank_balance: '1000', unallocated_balance: '400', allocated_equity: '1', allocated_fno: '2', allocated_commodity: '3', allocated_currency: '4' } } };
+      return { status: 200, json: { Success: { cash_limit: '50', amount_allocated: '10', block_by_trade: '0', isec_margin: '0', limit_list: [] } } };
+    });
+    const res = await fetch(`${base}/broker/funds`);
+    const body = await res.json();
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(body.funds).toMatchObject({ bankAccountLast4: '9012', unallocatedBalance: 400 });
+    expect(body.funds.derived.totalAllocated).toBe(10);
+    expect(body.margins.map((m) => m.exchange)).toEqual(['NSE', 'NFO']);
+    expect(body.margins[0]).toMatchObject({ cashLimit: 50, amountAllocated: 10, limitListCount: 0 });
+    expect(JSON.stringify(body)).not.toContain('123456789012');
+  });
+
+  it('still shows funds when margin is unavailable, and says why', async () => {
+    await start((req) => (req.path.endsWith('/funds')
+      ? { status: 200, json: { Success: { total_bank_balance: '1000' } } }
+      : { status: 200, json: { Success: null, Error: 'Resource not found for margin' } }));
+    const body = await (await fetch(`${base}/broker/funds`)).json();
+    expect(body.funds.totalBankBalance).toBe(1000);
+    expect(body.margins).toEqual([null, null]);
+    expect(body.marginErrors[0]).toMatch(/margin/);
+  });
+
+  it('fails clearly when nothing can be read', async () => {
+    await start(() => ({ status: 503, json: null }));
+    const res = await fetch(`${base}/broker/funds`);
+    expect(res.status).toBe(502);
+  });
+});
