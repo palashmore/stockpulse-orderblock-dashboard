@@ -103,3 +103,14 @@ export async function submitBrokerSession(session) {
 export async function disconnectBroker() {
   return await apiFetch('/auth/breeze/disconnect', { method: 'POST' });
 }
+
+// Read-only ICICI Direct holdings (loopback-only on the server). Resolves the portfolio or { error }.
+export async function fetchPortfolio() {
+  try {
+    const response = await fetch(`${API_BASE}/portfolio`, { cache: 'no-store' });
+    const body = await response.json();
+    return response.ok ? body : { error: body.error || `Request failed (${response.status})` };
+  } catch {
+    return { error: 'Could not reach the server' };
+  }
+}

@@ -11,6 +11,9 @@ import {
   parseNseTimestamp,
 } from './dataStatus.js';
 import { buildOptionsChain } from './options.js';
+import { loadSecurityMaster } from './securityMaster.js';
+import { buildPortfolio, mapFunds } from './portfolio.js';
+import { BREEZE_STOCK_CODES } from './breezeCodes.js';
 import { parseNseHolidays, getMarketState, markPartialCandles } from './marketCalendar.js';
 import { createRateLimiter, createConcurrencyLimiter } from './limits.js';
 import {
@@ -92,6 +95,7 @@ export function createApp({
   // Exchange holiday calendar source. Defaults to NSE's own list when the real fetch is in use and
   // is off when a custom fetchFn is injected (tests, fake feeds); then only weekends are detected.
   holidayFetch = rawFetch === globalThis.fetch ? globalThis.fetch : null,
+  loadMaster = null, // () => Promise<{ byCode, byIsin }>; defaults to ICICI's daily security master
   breeze = createBreezeClient({ appKey: process.env.BREEZE_API_KEY, secret: process.env.BREEZE_API_SECRET }),
 } = {}) {
   const app = express();
@@ -615,8 +619,82 @@ export function createApp({
     }
   });
 
+  // ---- portfolio (read-only; local machine only; personal data, so never cached beyond one minute)
+  let master = null;
+  let masterLoadedAt = 0;
+  const niftyByCode = Object.fromEntries(Object.entries(BREEZE_STOCK_CODES).map(([symbol, code]) => [code, symbol]));
+  let portfolioCache = null;
+
+  async function getMaster() {
+    if (master && now() - masterLoadedAt < 12 * 60 * MINUTE) return master;
+    try {
+      master = await (loadMaster ? loadMaster() : loadSecurityMaster(fetchFn));
+      masterLoadedAt = now();
+    } catch (error) {
+      console.error('Security master error:', error.message);
+      masterLoadedAt = now() - 12 * 60 * MINUTE + 10 * MINUTE; // keep any older copy, retry in 10 minutes
+    }
+    return master;
+  }
+
+  app.get('/api/portfolio', localOnly, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    if (!breeze.isConnected()) return res.status(409).json({ error: 'Sign in to ICICI Direct in Settings first' });
+    if (portfolioCache && now() - portfolioCache.at < MINUTE) return res.json(portfolioCache.body);
+
+    try {
+      const [rawHoldings, rawFunds, masterData] = await Promise.all([
+        breeze.getDematHoldings(),
+        breeze.getFunds().catch(() => null),
+        getMaster(),
+      ]);
+
+      // Price every held stock. Breeze answers HTTP 503 when called too fast, so go two at a time
+      // and retry a failed quote after a short pause (stays inside ICICI's 100 calls/minute).
+      const codes = [...new Set(rawHoldings.filter((h) => Number(h.quantity) > 0).map((h) => String(h.stock_code).trim()))];
+      const quotes = new Map();
+      const priceOne = async (code) => {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const q = await breeze.getQuote(code, code);
+            quotes.set(code, { price: q.price, previousClose: q.previousClose });
+            return;
+          } catch (error) {
+            if (attempt === 2 || !/HTTP 5\d\d/.test(error.message)) {
+              // unpriced holdings are reported as such, never valued at zero
+              console.error(`Portfolio quote failed for ${code}: ${error.message}`);
+              return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (attempt + 1)));
+          }
+        }
+      };
+      for (let i = 0; i < codes.length; i += 2) {
+        await Promise.all(codes.slice(i, i + 2).map(priceOne));
+      }
+
+      const nowMs = now();
+      const market = marketAt(nowMs);
+      const portfolio = buildPortfolio(rawHoldings, { master: masterData, niftyByCode, quotes });
+      const body = {
+        ...portfolio,
+        funds: mapFunds(rawFunds),
+        fetchedAt: new Date(nowMs).toISOString(),
+        priceBasis: market.isOpen ? 'latest broker quote (market open)' : `last close, session ${market.lastSession}`,
+        provider: 'ICICI Direct Breeze',
+        notes: ['Holdings have no purchase price in this API, so profit and loss versus cost is not shown.'],
+      };
+      portfolioCache = { at: nowMs, body };
+      res.json(body);
+    } catch (error) {
+      console.error('Portfolio error:', error.message);
+      res.status(502).json({ error: error.message });
+    }
+  });
+
   app.post('/api/auth/breeze/disconnect', localOnly, (req, res) => {
     breeze.disconnect();
+    portfolioCache = null;
     res.json({ connected: false });
   });
 

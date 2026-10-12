@@ -10,6 +10,7 @@ import {
   TrendingUp,
   Layers,
   Eye,
+  Wallet,
 } from 'lucide-react';
 
 const menuItems = [
@@ -18,6 +19,7 @@ const menuItems = [
   { icon: BarChart3, label: 'Screener', id: 'screener' },
   { icon: Layers, label: 'Multi-Chart', id: 'multichart' },
   { icon: PlayCircle, label: 'Watchlist', id: 'watchlist' },
+  { icon: Wallet, label: 'Portfolio', id: 'portfolio' },
   { icon: Eye, label: 'Scanner', id: 'scanner' },
   { icon: MessageSquare, label: 'Alerts', id: 'alerts' },
 ];

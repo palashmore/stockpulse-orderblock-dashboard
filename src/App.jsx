@@ -12,6 +12,7 @@ import MarketXRay from './components/MarketXRay';
 import AlertsPanel from './components/AlertsPanel';
 import ScannerPanel from './components/ScannerPanel';
 import SettingsPanel from './components/SettingsPanel';
+import PortfolioPanel from './components/PortfolioPanel';
 import { useAlerts } from './hooks/useAlerts';
 import { useNifty50 } from './hooks/useNifty50';
 import { getTimeframe, aggregateCandles } from './data/timeframes';
@@ -46,7 +47,7 @@ function formatDataTime(asOf) {
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => {
     const tab = new URLSearchParams(window.location.search).get('tab');
-    return ['dashboard', 'orderblock', 'screener', 'watchlist', 'alerts', 'scanner', 'settings'].includes(tab) ? tab : 'orderblock';
+    return ['dashboard', 'orderblock', 'screener', 'watchlist', 'alerts', 'scanner', 'settings', 'portfolio'].includes(tab) ? tab : 'orderblock';
   });
   const [selectedStock, setSelectedStock] = useState(NIFTY_STOCKS[0]);
 
@@ -381,6 +382,8 @@ export default function App() {
         return renderScreener();
       case 'watchlist':
         return renderWatchlist();
+      case 'portfolio':
+        return <PortfolioPanel onSelectStock={openStockFromOverview} />;
       case 'multichart':
         return renderPlaceholder('Multi-Chart View');
       case 'scanner':

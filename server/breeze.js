@@ -213,6 +213,22 @@ export function createBreezeClient({ appKey, secret, request = httpsRequest, now
       return quote;
     },
 
+    // ---- read-only account data (documented endpoints: funds, dematholdings, portfoliopositions)
+    async getFunds() {
+      const json = await call('GET', 'funds', {});
+      return json.Success && typeof json.Success === 'object' ? json.Success : null;
+    },
+
+    async getDematHoldings() {
+      const json = await call('GET', 'dematholdings', {});
+      return Array.isArray(json.Success) ? json.Success : [];
+    },
+
+    async getPositions() {
+      const json = await call('GET', 'portfoliopositions', {});
+      return Array.isArray(json.Success) ? json.Success : [];
+    },
+
     async getHistory(stockCode, interval, fromMs, toMs) {
       const breezeInterval = BREEZE_INTERVALS[interval];
       if (!breezeInterval) throw new Error(`Unsupported Breeze interval ${interval}`);
