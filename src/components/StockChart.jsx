@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   createChart,
   ColorType,
@@ -10,11 +10,45 @@ import {
 } from 'lightweight-charts';
 
 import { calculateVWAP } from '../data/marketAnalysis';
+import { TIMEFRAMES, getTimeframe } from '../data/timeframes';
 
-export default function StockChart({ candleData, orderBlocks, stockSymbol }) {
+export function TimeframeBar({ timeframe, onTimeframeChange, demoMode }) {
+  return (
+    <div
+      className="flex items-center gap-1 px-3 py-2 flex-shrink-0"
+      style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.3)' }}
+    >
+      {TIMEFRAMES.map((tf) => {
+        // Demo data is generated daily candles only
+        const disabled = demoMode && tf.id !== 'D';
+        return (
+          <button
+            key={tf.id}
+            onClick={() => onTimeframeChange(tf.id)}
+            disabled={disabled}
+            title={disabled ? 'Simulated data is daily only' : undefined}
+            className={`px-2.5 py-1 text-xs rounded transition-all ${
+              disabled ? 'text-gray-700 cursor-not-allowed' : 'cursor-pointer'
+            } ${
+              timeframe === tf.id
+                ? 'bg-green-500/15 text-green-400 font-medium'
+                : disabled ? '' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+            }`}
+          >
+            {tf.id}
+          </button>
+        );
+      })}
+      <div className="flex-1" />
+      <span className="text-xs text-gray-600">SMA 20 / 50 + VWAP 20 ({timeframe})</span>
+    </div>
+  );
+}
+
+export default function StockChart({ candleData, orderBlocks, stockSymbol, timeframe, onTimeframeChange, demoMode }) {
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
-  const [timeframe, setTimeframe] = useState('D');
+  const intraday = getTimeframe(timeframe).intraday;
 
   useEffect(() => {
     if (!chartContainerRef.current || !candleData || candleData.length === 0) return;
@@ -60,7 +94,7 @@ export default function StockChart({ candleData, orderBlocks, stockSymbol }) {
       },
       timeScale: {
         borderColor: '#1e2d3d',
-        timeVisible: true,
+        timeVisible: intraday,
         secondsVisible: false,
       },
       width,
@@ -168,33 +202,11 @@ export default function StockChart({ candleData, orderBlocks, stockSymbol }) {
         chartRef.current = null;
       }
     };
-  }, [candleData, orderBlocks, stockSymbol]);
-
-  const timeframes = ['1m', '5m', '15m', '1H', '4H', 'D', 'W'];
+  }, [candleData, orderBlocks, stockSymbol, intraday]);
 
   return (
     <div className="flex flex-col h-full w-full">
-      {/* Timeframe selector */}
-      <div
-        className="flex items-center gap-1 px-3 py-2 flex-shrink-0"
-        style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.3)' }}
-      >
-        {timeframes.map((tf) => (
-          <button
-            key={tf}
-            onClick={() => setTimeframe(tf)}
-            className={`px-2.5 py-1 text-xs rounded transition-all cursor-pointer ${
-              timeframe === tf
-                ? 'bg-green-500/15 text-green-400 font-medium'
-                : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
-            }`}
-          >
-            {tf}
-          </button>
-        ))}
-        <div className="flex-1" />
-        <span className="text-xs text-gray-600">SMA 20 / 50 + VWAP 20D</span>
-      </div>
+      <TimeframeBar timeframe={timeframe} onTimeframeChange={onTimeframeChange} demoMode={demoMode} />
       {/* Chart Canvas Container */}
       <div ref={chartContainerRef} className="flex-1 min-h-[250px] w-full" />
     </div>

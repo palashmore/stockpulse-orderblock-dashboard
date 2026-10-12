@@ -6,11 +6,19 @@ import {
   getMarketStatus,
   classifyQuoteStatus,
   classifyOptionsStatus,
+  classifyHistoryStatus,
   parseNseTimestamp,
 } from './dataStatus.js';
 import { buildOptionsChain } from './options.js';
 import { createRateLimiter, createConcurrencyLimiter } from './limits.js';
-import { isValidSymbol, isValidRange, isValidInterval, normalizeCandles } from './validators.js';
+import {
+  isValidSymbol,
+  isValidRange,
+  isValidInterval,
+  isIntradayInterval,
+  isSupportedCombination,
+  normalizeCandles,
+} from './validators.js';
 
 const MINUTE = 60 * 1000;
 
@@ -21,7 +29,10 @@ const POLICY = {
   nifty50: { ttl: 30 * 1000, maxStale: 15 * MINUTE },
   options: { ttl: 60 * 1000, maxStale: 30 * MINUTE },
   history: { ttl: 5 * MINUTE, maxStale: 24 * 60 * MINUTE },
+  historyIntraday: { ttl: 60 * 1000, maxStale: 60 * MINUTE },
 };
+
+const INTERVAL_MS = { '1m': 60e3, '2m': 120e3, '5m': 300e3, '15m': 900e3, '30m': 1800e3, '60m': 3600e3, '1h': 3600e3, '90m': 5400e3 };
 
 const YAHOO_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -278,14 +289,15 @@ export function createApp({
     if (!symbol) return;
     const range = req.query.range || '6mo';
     const interval = req.query.interval || '1d';
-    if (!isValidRange(range) || !isValidInterval(interval)) {
+    if (!isValidRange(range) || !isValidInterval(interval) || !isSupportedCombination(range, interval)) {
       return res.status(400).json({ error: 'Invalid range or interval', dataStatus: DATA_STATUS.UNAVAILABLE });
     }
+    const intraday = isIntradayInterval(interval);
     const yahooSymbol = symbol.includes('.') ? symbol : `${symbol}.NS`;
 
     await serve(res, 'History', {
       key: `history_${yahooSymbol}_${range}_${interval}`,
-      policy: POLICY.history,
+      policy: intraday ? POLICY.historyIntraday : POLICY.history,
       load: async () => {
         const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=${range}&interval=${interval}&includeAdjustedClose=true`;
         const data = await fetchJson(url, YAHOO_HEADERS);
@@ -297,9 +309,13 @@ export function createApp({
           chart.timestamp || [],
           chart.indicators?.quote?.[0] || {},
           chart.indicators?.adjclose?.[0]?.adjclose || [],
-          chart.meta?.gmtoffset
+          chart.meta?.gmtoffset,
+          intraday
         );
         if (candles.length === 0) throw new Error('No valid candles in provider response');
+        const lastCandle = candles[candles.length - 1];
+        const offsetSec = Number.isFinite(chart.meta?.gmtoffset) ? chart.meta.gmtoffset : 19800;
+        const nowMs = now();
 
         return {
           body: {
@@ -308,10 +324,16 @@ export function createApp({
             exchange: chart.meta?.exchangeName || 'NSI',
             candles,
           },
-          status: DATA_STATUS.HISTORICAL,
+          status: classifyHistoryStatus({
+            intraday,
+            marketOpen: getMarketStatus(new Date(nowMs)).isOpen,
+            lastBarMs: intraday ? (lastCandle.time - offsetSec) * 1000 : null,
+            intervalMs: INTERVAL_MS[interval],
+            nowMs,
+          }),
           provider: 'Yahoo Finance',
-          fetchedAt: new Date(now()).toISOString(),
-          asOf: candles[candles.length - 1].time,
+          fetchedAt: new Date(nowMs).toISOString(),
+          asOf: intraday ? new Date((lastCandle.time - offsetSec) * 1000).toISOString() : lastCandle.time,
         };
       },
     });

@@ -122,6 +122,7 @@ export default function MarketXRay({ nifty, onSelectStock }) {
 
       <p className="px-4 py-3 text-[10px] text-gray-600">
         {sectors.uncovered > 0 && `${sectors.uncovered} stocks have no sector mapping and are left out of the sector view. `}
+        {sectors.thinSectors.length > 0 && `Sectors with a single stock are not listed (${sectors.thinSectors.join(', ')}). `}
         {breadth.unknown > 0 && `${breadth.unknown} stocks have no price change and are excluded. `}
         Click a dot to open that stock. Dots beyond ±{DOT_AXIS_LIMIT}% are pinned to the edge (faded).
       </p>

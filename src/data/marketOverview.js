@@ -30,8 +30,8 @@ export function computeBreadth(quotes) {
 
 /**
  * Equal-weighted average % change per sector (not market-cap weighted), sorted best first.
- * Sectors with fewer than `minStocks` ranked members are left out as too thin to call, and
- * symbols missing from `sectorMap` are counted in `uncovered`.
+ * Sectors with fewer than `minStocks` ranked members are left out as too thin to call (named in
+ * `thinSectors`), and symbols missing from `sectorMap` are counted in `uncovered`.
  */
 export function sectorPerformance(quotes, sectorMap, minStocks = 2) {
   const groups = new Map();
@@ -49,6 +49,7 @@ export function sectorPerformance(quotes, sectorMap, minStocks = 2) {
     groups.set(sector, g);
   }
 
+  const thinSectors = [...groups.entries()].filter(([, g]) => g.count < minStocks).map(([sector]) => sector).sort();
   const sectors = [...groups.entries()]
     .filter(([, g]) => g.count >= minStocks)
     .map(([sector, g]) => ({ sector, avgChangePct: g.sum / g.count, count: g.count }))
@@ -58,6 +59,7 @@ export function sectorPerformance(quotes, sectorMap, minStocks = 2) {
     sectors,
     leading: sectors.length >= 2 ? sectors[0] : null,
     lagging: sectors.length >= 2 ? sectors[sectors.length - 1] : null,
+    thinSectors,
     uncovered,
   };
 }

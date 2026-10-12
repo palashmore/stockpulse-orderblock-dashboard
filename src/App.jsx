@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import SearchBar from './components/SearchBar';
-import StockChart from './components/StockChart';
+import StockChart, { TimeframeBar } from './components/StockChart';
 import OrderBlockPanel from './components/OrderBlockPanel';
 import SignalCards from './components/SignalCards';
 import MetricsBar from './components/MetricsBar';
@@ -10,6 +10,7 @@ import OIAnalysisPanel from './components/OIAnalysisPanel';
 import RankedBoard from './components/RankedBoard';
 import MarketXRay from './components/MarketXRay';
 import { useNifty50 } from './hooks/useNifty50';
+import { getTimeframe, aggregateCandles } from './data/timeframes';
 import { DataStatusBadge, SimulationBanner, UnavailableState } from './components/DataStatusBadge';
 import {
   NIFTY_STOCKS,
@@ -53,7 +54,12 @@ export default function App() {
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
-  const requestedSymbol = useRef(selectedStock.symbol);
+  const [timeframe, setTimeframe] = useState(() => {
+    const tf = new URLSearchParams(window.location.search).get('tf');
+    return getTimeframe(tf).id;
+  });
+  // Identifies the stock + timeframe the latest request was made for, so late responses are ignored
+  const requestKey = useRef('');
 
   const checkBackend = useCallback(() => {
     return checkBackendHealth().then((healthy) => {
@@ -71,15 +77,17 @@ export default function App() {
   // Fetch real data when stock changes or backend becomes available
   const loadRealData = useCallback(async (symbol) => {
     if (demoMode || !backendUp) return;
-    requestedSymbol.current = symbol;
+    const tf = getTimeframe(timeframe);
+    const key = `${symbol}|${tf.id}`;
+    requestKey.current = key;
     setLoading(true);
     const [historyData, quoteData, optData] = await Promise.all([
-      fetchHistory(symbol, '6mo', '1d'),
+      fetchHistory(symbol, tf.range, tf.interval),
       fetchQuote(symbol),
       fetchOptions(symbol),
     ]);
-    // Ignore responses for a stock the user has already navigated away from
-    if (requestedSymbol.current !== symbol) return;
+    // Ignore responses for a stock/timeframe the user has already navigated away from
+    if (requestKey.current !== key) return;
 
     if (historyData) setHistory(historyData);
     if (quoteData) setRealQuote(quoteData);
@@ -88,7 +96,7 @@ export default function App() {
     setLastUpdate(new Date());
     setAttempted(true);
     setLoading(false);
-  }, [demoMode, backendUp]);
+  }, [demoMode, backendUp, timeframe]);
 
   useEffect(() => {
     loadRealData(selectedStock.symbol);
@@ -107,8 +115,10 @@ export default function App() {
   // Real candles, or generated ones only in explicit demo mode. Never mixed.
   const candleData = useMemo(() => {
     if (demoMode) return generateCandlestickData(selectedStock.symbol);
-    return history?.candles ?? [];
-  }, [demoMode, history, selectedStock.symbol]);
+    if (!history) return [];
+    const aggregate = getTimeframe(timeframe).aggregate;
+    return aggregate ? aggregateCandles(history.candles, aggregate) : history.candles;
+  }, [demoMode, history, selectedStock.symbol, timeframe]);
 
   const orderBlocks = useMemo(() => {
     return detectOrderBlocks(candleData);
@@ -147,16 +157,46 @@ export default function App() {
     />
   );
 
+  // Day change from the quote when available, so the OI buildup reading does not depend on the chart timeframe
   const priceChange = useMemo(() => {
+    if (Number.isFinite(realQuote?.change)) return realQuote.change;
     if (candleData.length >= 2) {
       return candleData[candleData.length - 1].close - candleData[candleData.length - 2].close;
     }
     return 0;
-  }, [candleData]);
+  }, [realQuote, candleData]);
+
+  const handleTimeframeChange = (id) => {
+    if (id === timeframe) return;
+    requestKey.current = `${selectedStock.symbol}|${id}`;
+    setHistory(null);
+    setRefreshFailed(false);
+    setAttempted(false);
+    setTimeframe(id);
+  };
+
+  // Chart area: the timeframe bar stays usable while data is loading or unavailable
+  const renderChart = () => (
+    noData ? (
+      <div className="flex flex-col h-full">
+        <TimeframeBar timeframe={timeframe} onTimeframeChange={handleTimeframeChange} demoMode={demoMode} />
+        {renderUnavailable()}
+      </div>
+    ) : (
+      <StockChart
+        candleData={candleData}
+        orderBlocks={orderBlocks}
+        stockSymbol={selectedStock.symbol}
+        timeframe={timeframe}
+        onTimeframeChange={handleTimeframeChange}
+        demoMode={demoMode}
+      />
+    )
+  );
 
   const handleSelectStock = (stock) => {
     // Reset real data when switching
-    requestedSymbol.current = stock.symbol;
+    requestKey.current = `${stock.symbol}|${timeframe}`;
     setHistory(null);
     setRealQuote(null);
     setOptionsData(null);
@@ -171,17 +211,13 @@ export default function App() {
   };
 
   // Order block view (orderblock tab)
-  const renderDashboard = () => noData ? renderUnavailable() : (
+  const renderDashboard = () => (
     <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Left: Chart + Order Blocks */}
       <div className="flex flex-col flex-1 min-w-0">
         {/* Chart Area */}
         <div className="flex-1 min-h-0" style={{ minHeight: '55%' }}>
-          <StockChart
-            candleData={candleData}
-            orderBlocks={orderBlocks}
-            stockSymbol={selectedStock.symbol}
-          />
+          {renderChart()}
         </div>
         {/* Order Blocks Panel */}
         <div
@@ -233,13 +269,7 @@ export default function App() {
     <div className="flex flex-1 min-h-0 overflow-hidden">
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 min-h-0">
-          {noData ? renderUnavailable() : (
-            <StockChart
-              candleData={candleData}
-              orderBlocks={orderBlocks}
-              stockSymbol={selectedStock.symbol}
-            />
-          )}
+          {renderChart()}
         </div>
       </div>
       <div

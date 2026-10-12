@@ -14,20 +14,39 @@ export function isValidInterval(interval) {
   return INTERVALS.has(interval);
 }
 
+const INTRADAY = new Set(['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h']);
+
+export function isIntradayInterval(interval) {
+  return INTRADAY.has(interval);
+}
+
+// Yahoo only serves intraday bars for a limited look-back: 1m ~7 days, other intraday ~60 days
+// (60m/1h ~2 years). Reject combinations it would refuse instead of passing them through.
+const RANGE_DAYS = { '1d': 1, '5d': 5, '1mo': 31, '3mo': 93, '6mo': 186, '1y': 366, '2y': 731, '5y': 1827 };
+const INTRADAY_MAX_DAYS = { '1m': 7, '2m': 60, '5m': 60, '15m': 60, '30m': 60, '90m': 60, '60m': 730, '1h': 730 };
+
+export function isSupportedCombination(range, interval) {
+  if (!isIntradayInterval(interval)) return true;
+  const days = RANGE_DAYS[range];
+  return days !== undefined && days <= INTRADAY_MAX_DAYS[interval];
+}
+
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
 /**
  * Build candles from Yahoo's parallel arrays, dropping anything that cannot be trusted:
  * null/non-numeric OHLC, impossible OHLC relationships, and duplicate or out-of-order days.
- * Candle dates are calendar dates in the exchange timezone (`gmtOffsetSec`, default IST),
- * not UTC. Missing volume is null, never an invented 0.
+ * Daily/weekly candles use calendar dates in the exchange timezone (`gmtOffsetSec`, default
+ * IST), not UTC. Intraday candles use the bar start as epoch seconds shifted by the same
+ * offset, so the chart's UTC axis shows exchange wall-clock time. Missing volume is null,
+ * never an invented 0.
  */
 const IST_OFFSET_SEC = 19800;
 
-export function normalizeCandles(timestamps, ohlcv, adjClose = [], gmtOffsetSec = IST_OFFSET_SEC) {
+export function normalizeCandles(timestamps, ohlcv, adjClose = [], gmtOffsetSec = IST_OFFSET_SEC, intraday = false) {
   const candles = [];
   let dropped = 0;
-  let lastTime = '';
+  let lastTime = null;
 
   for (let i = 0; i < timestamps.length; i++) {
     const open = ohlcv.open?.[i];
@@ -45,8 +64,8 @@ export function normalizeCandles(timestamps, ohlcv, adjClose = [], gmtOffsetSec 
     }
 
     const offset = Number.isFinite(gmtOffsetSec) ? gmtOffsetSec : IST_OFFSET_SEC;
-    const time = new Date((timestamps[i] + offset) * 1000).toISOString().split('T')[0];
-    if (time < lastTime) {
+    const time = intraday ? timestamps[i] + offset : new Date((timestamps[i] + offset) * 1000).toISOString().split('T')[0];
+    if (lastTime !== null && time < lastTime) {
       dropped++;
       continue;
     }

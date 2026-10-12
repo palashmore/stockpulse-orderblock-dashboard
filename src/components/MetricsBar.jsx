@@ -56,7 +56,7 @@ export default function MetricsBar({ metrics, stockInfo }) {
 
       {/* Metric Items */}
       <div className="flex items-center" style={{ borderRight: '1px solid rgba(30, 45, 61, 0.3)' }}>
-        <MetricItem label="VWAP 20D" value={metrics.vwap === null ? '—' : `₹${metrics.vwap}`} />
+        <MetricItem label="VWAP 20" value={metrics.vwap === null ? '—' : `₹${metrics.vwap}`} />
       </div>
 
       <div className="flex items-center" style={{ borderRight: '1px solid rgba(30, 45, 61, 0.3)' }}>

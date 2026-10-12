@@ -151,7 +151,7 @@ export default function SignalCards({ signals }) {
   if (!signals || signals.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-gray-600 text-sm">
-        Loading signals...
+        No signals: options data is unavailable for this stock
       </div>
     );
   }

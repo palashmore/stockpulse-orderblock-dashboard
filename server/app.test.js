@@ -212,6 +212,51 @@ describe('API', () => {
     });
   });
 
+  describe('/history intraday', () => {
+    const bar = (min) => Math.floor((OPEN_MS - 3_600_000 + min * 60_000) / 1000);
+    const intradayChart = () => ({
+      chart: {
+        result: [{
+          meta: { currency: 'INR', exchangeName: 'NSI', gmtoffset: 19800 },
+          timestamp: [bar(0), bar(1), bar(2)],
+          indicators: {
+            quote: [{ open: [10, 11, 12], high: [12, 13, 14], low: [9, 10, 11], close: [11, 12, 13], volume: [5, 6, 7] }],
+            adjclose: [{ adjclose: [11, 12, 13] }],
+          },
+        }],
+      },
+    });
+
+    it('returns every intraday bar with epoch-second times; old newest bar is STALE in-session', async () => {
+      upstream = () => jsonResponse(intradayChart());
+      const { res, body } = await get('/history/RELIANCE?range=5d&interval=1m');
+      expect(res.status).toBe(200);
+      expect(body.candles).toHaveLength(3);
+      expect(body.candles[0].time).toBe(bar(0) + 19800);
+      expect(body.dataStatus).toBe('STALE'); // newest bar is ~57 min old
+    });
+
+    it('is DELAYED when the newest bar is recent', async () => {
+      const chart = intradayChart();
+      chart.chart.result[0].timestamp = [bar(56), bar(57), bar(59)];
+      upstream = () => jsonResponse(chart);
+      expect((await get('/history/RELIANCE?range=5d&interval=1m')).body.dataStatus).toBe('DELAYED');
+    });
+
+    it('rejects unsupported intraday ranges before calling the provider', async () => {
+      expect((await get('/history/RELIANCE?range=6mo&interval=1m')).res.status).toBe(400);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('uses the short intraday cache window', async () => {
+      upstream = () => jsonResponse(intradayChart());
+      await get('/history/RELIANCE?range=5d&interval=1m');
+      clock += 61_000;
+      await get('/history/RELIANCE?range=5d&interval=1m');
+      expect(calls).toHaveLength(2);
+    });
+  });
+
   describe('/options', () => {
     beforeEach(() => {
       upstream = (url) => (url === 'https://www.nseindia.com/'

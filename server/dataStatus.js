@@ -57,6 +57,17 @@ export function classifyOptionsStatus({ marketOpen, asOfMs, nowMs }) {
   return DATA_STATUS.DELAYED;
 }
 
+/**
+ * Status of a history response. Daily/weekly series are HISTORICAL. For intraday series the
+ * newest bar's start is compared with the clock: during the session a recent bar is DELAYED
+ * (unofficial feed), an old one STALE; outside the session it is HISTORICAL.
+ */
+export function classifyHistoryStatus({ intraday, marketOpen, lastBarMs, intervalMs, nowMs }) {
+  if (!intraday || !marketOpen) return DATA_STATUS.HISTORICAL;
+  if (!Number.isFinite(lastBarMs)) return DATA_STATUS.STALE;
+  return nowMs - lastBarMs > intervalMs + MAX_IN_SESSION_AGE_MS ? DATA_STATUS.STALE : DATA_STATUS.DELAYED;
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** Parse NSE's "DD-Mon-YYYY HH:mm:ss" (IST) timestamp to epoch ms, or null. */

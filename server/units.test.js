@@ -7,7 +7,10 @@ import {
   getMarketStatus,
 } from './dataStatus.js';
 import { computePCR, computeMaxPain, buildOptionsChain } from './options.js';
-import { normalizeCandles, isValidSymbol } from './validators.js';
+import { normalizeCandles, isValidSymbol, isSupportedCombination, isIntradayInterval } from './validators.js';
+import { classifyHistoryStatus } from './dataStatus.js';
+import { NIFTY50_SYMBOLS } from './app.js';
+import { NIFTY_STOCKS } from '../src/data/stockData.js';
 
 describe('cache', () => {
   it('separates freshness from the stale window and evicts expired entries', () => {
@@ -131,5 +134,55 @@ describe('candle validation', () => {
     expect(isValidSymbol('a b')).toBe(false);
     expect(isValidSymbol('')).toBe(false);
     expect(isValidSymbol('X'.repeat(21))).toBe(false);
+  });
+});
+
+describe('intraday candles', () => {
+  const t0 = Date.UTC(2026, 9, 12, 3, 45) / 1000; // 09:15 IST
+
+  it('keeps bar start as exchange-shifted epoch seconds and allows many bars per day', () => {
+    const ohlcv = {
+      open: [10, 11, 12], high: [12, 13, 14], low: [9, 10, 11], close: [11, 12, 13], volume: [1, 2, null],
+    };
+    const { candles } = normalizeCandles([t0, t0 + 3600, t0 + 7200], ohlcv, [], 19800, true);
+    expect(candles.map((c) => c.time)).toEqual([t0 + 19800, t0 + 3600 + 19800, t0 + 7200 + 19800]);
+    expect(candles[2].volume).toBeNull();
+  });
+
+  it('drops out-of-order and duplicate intraday bars', () => {
+    const ohlcv = { open: [10, 10, 10], high: [12, 12, 12], low: [9, 9, 9], close: [11, 11, 11], volume: [1, 2, 3] };
+    const { candles } = normalizeCandles([t0 + 60, t0, t0 + 60], ohlcv, [], 19800, true);
+    expect(candles).toHaveLength(1);
+  });
+
+  it('only accepts range/interval pairs Yahoo serves', () => {
+    expect(isSupportedCombination('5d', '1m')).toBe(true);
+    expect(isSupportedCombination('1mo', '1m')).toBe(false);
+    expect(isSupportedCombination('1mo', '5m')).toBe(true);
+    expect(isSupportedCombination('6mo', '5m')).toBe(false);
+    expect(isSupportedCombination('6mo', '60m')).toBe(true);
+    expect(isSupportedCombination('max', '60m')).toBe(false);
+    expect(isSupportedCombination('2y', '1wk')).toBe(true);
+    expect(isIntradayInterval('1mo')).toBe(false);
+    expect(isIntradayInterval('60m')).toBe(true);
+  });
+
+  it('classifies history status from the newest bar', () => {
+    const nowMs = 10_000_000;
+    const base = { intraday: true, marketOpen: true, intervalMs: 60_000, nowMs };
+    expect(classifyHistoryStatus({ ...base, lastBarMs: nowMs - 60_000 })).toBe('DELAYED');
+    expect(classifyHistoryStatus({ ...base, lastBarMs: nowMs - 30 * 60_000 })).toBe('STALE');
+    expect(classifyHistoryStatus({ ...base, lastBarMs: null })).toBe('STALE');
+    expect(classifyHistoryStatus({ ...base, marketOpen: false, lastBarMs: nowMs })).toBe('HISTORICAL');
+    expect(classifyHistoryStatus({ ...base, intraday: false })).toBe('HISTORICAL');
+  });
+});
+
+describe('sector coverage', () => {
+  it('maps every Nifty 50 symbol the server queries to a name and sector', () => {
+    const bySymbol = new Map(NIFTY_STOCKS.map((s) => [s.symbol, s]));
+    const missing = NIFTY50_SYMBOLS.filter((sym) => !bySymbol.get(sym)?.sector);
+    expect(missing).toEqual([]);
+    expect(new Set(NIFTY_STOCKS.map((s) => s.symbol)).size).toBe(NIFTY_STOCKS.length);
   });
 });

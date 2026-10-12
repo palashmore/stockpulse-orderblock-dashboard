@@ -26,7 +26,8 @@ describe('sectorPerformance', () => {
     ]);
     expect(r.leading.sector).toBe('IT');
     expect(r.lagging.sector).toBe('Banking');
-    expect(r.uncovered).toBe(1); // ZZ has no sector; Pharma (1 stock) is too thin to list
+    expect(r.uncovered).toBe(1); // ZZ has no sector
+    expect(r.thinSectors).toEqual(['Pharma']); // one stock is too thin to list
   });
 
   it('does not name a leader or laggard from fewer than two sectors', () => {
