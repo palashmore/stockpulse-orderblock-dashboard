@@ -1,10 +1,15 @@
 const MAX_BUCKETS = 5000;
 
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
 /**
  * Fixed-window per-client request limiter. `/api/health` is exempt.
+ * Clients on the machine running the server (the person using the app, whose screens scan hundreds of
+ * stocks) get the higher `loopbackMax`; other network clients get `max`. Upstream providers stay protected
+ * by the response cache and the concurrency limit, not by this.
  * Returns Express middleware; `now` is injectable for tests.
  */
-export function createRateLimiter({ windowMs = 60_000, max = 120, now = Date.now } = {}) {
+export function createRateLimiter({ windowMs = 60_000, max = 120, loopbackMax = 1200, now = Date.now } = {}) {
   const buckets = new Map();
 
   return (req, res, next) => {
@@ -23,7 +28,7 @@ export function createRateLimiter({ windowMs = 60_000, max = 120, now = Date.now
     }
 
     bucket.count++;
-    if (bucket.count > max) {
+    if (bucket.count > (LOOPBACK.has(key) ? Math.max(max, loopbackMax) : max)) {
       res.set('Retry-After', String(Math.ceil((bucket.resetAt - t) / 1000)));
       return res.status(429).json({ error: 'Too many requests', dataStatus: 'UNAVAILABLE' });
     }

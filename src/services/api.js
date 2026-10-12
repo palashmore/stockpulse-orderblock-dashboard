@@ -8,9 +8,15 @@ export function resolveApiBase(env = {}, location = null) {
 
 export const API_BASE = resolveApiBase(import.meta.env, typeof window !== 'undefined' ? window.location : null);
 
+/** How long to wait after a 429: the server's Retry-After seconds, capped, or 5 s when it gave none. */
+export function retryDelayMs(value, maxSeconds = 20) {
+  const seconds = Number(value);
+  return (Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, maxSeconds) : 5) * 1000;
+}
+
 // Helper to make API calls with timeout and error handling.
 // Resolves to { data, headers } on success, null on any failure.
-async function apiRequest(endpoint, options = {}) {
+async function apiRequest(endpoint, { retried = false, ...options } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
 
@@ -20,6 +26,11 @@ async function apiRequest(endpoint, options = {}) {
       signal: controller.signal,
     });
     clearTimeout(timeout);
+    // The server is busy, not broken: wait as long as it asks (once) instead of reporting "no data"
+    if (response.status === 429 && !retried) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs(response.headers.get('retry-after'))));
+      return apiRequest(endpoint, { ...options, retried: true });
+    }
     if (!response.ok) {
       throw new Error(`API Error: ${response.status}`);
     }

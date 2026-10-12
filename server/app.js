@@ -103,7 +103,7 @@ export function createApp({
   fetchFn: rawFetch = fetch,
   now = Date.now,
   retryDelayMs = 1000,
-  rateLimit = { windowMs: 60_000, max: Number(process.env.RATE_LIMIT_PER_MIN) || 120 },
+  rateLimit = { windowMs: 60_000, max: Number(process.env.RATE_LIMIT_PER_MIN) || 120, loopbackMax: Number(process.env.RATE_LIMIT_LOCAL_PER_MIN) || 1200 },
   upstreamConcurrency = Number(process.env.UPSTREAM_CONCURRENCY) || 4,
   // Exchange holiday calendar source. Defaults to NSE's own list when the real fetch is in use and
   // is off when a custom fetchFn is injected (tests, fake feeds); then only weekends are detected.

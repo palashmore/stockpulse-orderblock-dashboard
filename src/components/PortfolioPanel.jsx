@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchPortfolio } from '../services/api';
 import { loadSettings } from '../data/settings';
+import { loadCosts, saveCosts, setCost } from '../data/costBasis';
+import { usePortfolioAnalysis } from '../hooks/usePortfolioAnalysis';
+import { ReviewView, AllocationView, CorrelationView } from './PortfolioReview';
 
 const GREEN = '#00e676';
 const RED = '#ff1744';
@@ -18,11 +21,21 @@ function Stat({ label, value, color, sub }) {
   );
 }
 
+const VIEWS = [
+  { id: 'holdings', label: 'Holdings' },
+  { id: 'review', label: 'Review: buy, hold, sell' },
+  { id: 'allocation', label: 'Allocation' },
+  { id: 'correlation', label: 'Correlation & risk' },
+];
+
 // Read-only view of the ICICI Direct demat holdings. Personal data: it is fetched on demand from the
 // local server, kept only in this component's state, and hidden behind a button until you ask.
 export default function PortfolioPanel({ onSelectStock }) {
   const [state, setState] = useState({ status: 'idle', data: null, error: '' });
   const [hidden, setHidden] = useState(() => loadSettings(window.localStorage).hideAmounts);
+  const [view, setView] = useState('holdings');
+  const [costs, setCosts] = useState(() => loadCosts(window.localStorage));
+  const [costSaveFailed, setCostSaveFailed] = useState(false);
 
   const load = useCallback(async () => {
     setState((s) => ({ ...s, status: 'loading', error: '' }));
@@ -44,6 +57,19 @@ export default function PortfolioPanel({ onSelectStock }) {
   const { status, data, error } = state;
   const mask = (text) => (hidden ? '••••••' : text);
 
+  const onCost = useCallback((symbol, text) => {
+    const next = setCost(costs, symbol, text);
+    if (next[symbol] === costs[symbol]) return;
+    setCosts(next);
+    setCostSaveFailed(!saveCosts(next, window.localStorage));
+  }, [costs]);
+
+  const holdings = data?.holdings ?? null;
+  const analysisInput = useMemo(() => ({ funds: data?.funds ?? null, totalValue: data?.totals?.value ?? null, costs }), [data, costs]);
+  // The price history behind the review is only fetched once one of the analysis tabs has been opened
+  const [analysisWanted, setAnalysisWanted] = useState(false);
+  const portfolio = usePortfolioAnalysis(analysisWanted ? holdings : null, analysisInput);
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto" style={{ backgroundColor: '#0a0e17' }}>
       <div className="flex items-center justify-between px-4 py-2" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.3)' }}>
@@ -58,6 +84,22 @@ export default function PortfolioPanel({ onSelectStock }) {
         </div>
       </div>
 
+      {data && (
+        <div className="flex flex-wrap gap-2 px-4 py-2" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.3)' }}>
+          {VIEWS.map((v) => (
+            <button
+              key={v.id}
+              onClick={() => { setView(v.id); if (v.id !== 'holdings') setAnalysisWanted(true); }}
+              aria-pressed={view === v.id}
+              className="px-2.5 py-1 text-[11px] rounded cursor-pointer"
+              style={{ backgroundColor: view === v.id ? 'rgba(0, 230, 118, 0.15)' : 'rgba(255,255,255,0.04)', color: view === v.id ? '#00e676' : '#94a3b8' }}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {status === 'loading' && !data && <p className="px-4 py-6 text-xs text-gray-500">Loading your holdings…</p>}
 
       {status === 'error' && (
@@ -70,7 +112,14 @@ export default function PortfolioPanel({ onSelectStock }) {
         </div>
       )}
 
-      {data && (
+      {data && view === 'review' && (
+        <ReviewView {...portfolio} onCost={onCost} onSelectStock={onSelectStock} />
+      )}
+      {data && view === 'allocation' && <AllocationView {...portfolio} holdings={data.holdings} hidden={hidden} />}
+      {data && view === 'correlation' && <CorrelationView {...portfolio} />}
+      {costSaveFailed && view === 'review' && <p className="px-4 py-2 text-[11px]" style={{ color: '#ff1744' }}>Could not save your average prices in this browser.</p>}
+
+      {data && view === 'holdings' && (
         <>
           <div className="flex flex-wrap" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.3)' }}>
             <Stat label="Holdings value" value={mask(inr(data.totals.value))} />

@@ -15,7 +15,7 @@ describe('rate limiter', () => {
     let t = 1000;
     const { app } = createApp({
       fetchFn: async () => jsonResponse(quoteBody),
-      rateLimit: { windowMs: 60_000, max: 2 },
+      rateLimit: { windowMs: 60_000, max: 2, loopbackMax: 2 },
       now: () => t,
     });
     const { base, close } = await listen(app);
@@ -31,6 +31,31 @@ describe('rate limiter', () => {
     } finally {
       await close();
     }
+  });
+
+  it('gives clients on the server machine a higher limit than other network clients', () => {
+    const limiter = createRateLimiter({ max: 2, loopbackMax: 5, now: () => 0 });
+    const run = (ip) => {
+      let status = 200;
+      const res = { set() {}, status(code) { status = code; return this; }, json() {} };
+      limiter({ path: '/api/x', ip }, res, () => {});
+      return status;
+    };
+    const statuses = (ip, n) => Array.from({ length: n }, () => run(ip));
+    expect(statuses('192.168.1.20', 4)).toEqual([200, 200, 429, 429]);
+    for (const local of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
+      expect(statuses(local, 6)).toEqual([200, 200, 200, 200, 200, 429]);
+    }
+  });
+
+  it('never lets the local limit fall below the general one', () => {
+    const limiter = createRateLimiter({ max: 4, loopbackMax: 1, now: () => 0 });
+    let blocked = 0;
+    for (let i = 0; i < 5; i++) {
+      const res = { set() {}, status() { blocked++; return this; }, json() {} };
+      limiter({ path: '/api/x', ip: '127.0.0.1' }, res, () => {});
+    }
+    expect(blocked).toBe(1);
   });
 
   it('unit: counts per client key', () => {

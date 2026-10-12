@@ -43,7 +43,7 @@ export function useUniverseSelection() {
 
 // One request per index per session; a failed one is retried the next time it is needed.
 const lists = new Map();
-function getIndexList(id) {
+export function getIndexList(id) {
   if (!lists.has(id)) lists.set(id, fetchIndexStocks(id).then((d) => { if (!d) lists.delete(id); return d; }));
   return lists.get(id);
 }
