@@ -8,6 +8,7 @@ import MetricsBar from './components/MetricsBar';
 import Watchlist from './components/Watchlist';
 import OIAnalysisPanel from './components/OIAnalysisPanel';
 import RankedBoard from './components/RankedBoard';
+import MarketXRay from './components/MarketXRay';
 import { useNifty50 } from './hooks/useNifty50';
 import { DataStatusBadge, SimulationBanner, UnavailableState } from './components/DataStatusBadge';
 import {
@@ -164,7 +165,12 @@ export default function App() {
     setSelectedStock(stock);
   };
 
-  // Main dashboard view (orderblock tab)
+  const openStockFromOverview = (stock) => {
+    handleSelectStock(stock);
+    setActiveTab('orderblock');
+  };
+
+  // Order block view (orderblock tab)
   const renderDashboard = () => noData ? renderUnavailable() : (
     <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Left: Chart + Order Blocks */}
@@ -295,6 +301,7 @@ export default function App() {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
+        return <MarketXRay nifty={nifty} onSelectStock={openStockFromOverview} />;
       case 'orderblock':
         return renderDashboard();
       case 'screener':
