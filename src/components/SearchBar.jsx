@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Search, X } from 'lucide-react';
 import { NIFTY_STOCKS } from '../data/stockData';
+import { searchStocks } from '../services/api';
+import { mergeSearchResults } from '../data/search';
 
 export default function SearchBar({ selectedStock, onSelectStock }) {
   const [query, setQuery] = useState('');
@@ -9,11 +11,28 @@ export default function SearchBar({ selectedStock, onSelectStock }) {
   const inputRef = useRef(null);
   const dropdownRef = useRef(null);
 
-  const filtered = NIFTY_STOCKS.filter(
-    (s) =>
-      s.symbol.toLowerCase().includes(query.toLowerCase()) ||
-      s.name.toLowerCase().includes(query.toLowerCase())
-  ).slice(0, 8);
+  const [remote, setRemote] = useState({ query: '', results: [], done: true });
+
+  // Local Nifty 50 matches show instantly; every NSE-listed stock comes from the server search,
+  // debounced so typing does not fire a request per keystroke.
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const results = await searchStocks(q);
+      if (!cancelled) setRemote({ query: q, results, done: true });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query]);
+
+  const q = query.trim();
+  const remoteForQuery = remote.query === q ? remote.results : [];
+  const searching = q.length >= 2 && remote.query !== q;
+  const filtered = mergeSearchResults(NIFTY_STOCKS, remoteForQuery, query, 10);
 
   useEffect(() => {
     const handler = (e) => {
@@ -90,6 +109,12 @@ export default function SearchBar({ selectedStock, onSelectStock }) {
         </kbd>
       </div>
 
+      {isOpen && q.length > 0 && filtered.length === 0 && (
+        <div className="absolute top-full left-0 right-0 mt-1 rounded-lg px-3 py-3 text-xs text-gray-500 z-50" style={{ backgroundColor: '#151d2b', border: '1px solid #1e2d3d' }}>
+          {searching ? 'Searching…' : 'No NSE stock found. Try the company name or the exact symbol.'}
+        </div>
+      )}
+
       {isOpen && filtered.length > 0 && (
         <div
           className="absolute top-full left-0 right-0 mt-1 rounded-lg overflow-hidden z-50"
@@ -125,7 +150,7 @@ export default function SearchBar({ selectedStock, onSelectStock }) {
               </div>
               <span className="text-xs px-2 py-0.5 rounded-full"
                 style={{ backgroundColor: 'rgba(30, 45, 61, 0.5)', color: '#94a3b8' }}>
-                {stock.sector}
+                {stock.sector || 'NSE'}
               </span>
             </button>
           ))}

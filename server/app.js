@@ -354,10 +354,12 @@ export function createApp({
       const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&lang=en-US&region=IN&quotesCount=10&newsCount=0&enableFuzzyQuery=false&quotesQueryId=tss_match_phrase_query`;
       const data = await fetchJson(url, YAHOO_HEADERS);
 
+      // NSE-listed equities and ETFs only: every data route reads a bare symbol as `SYMBOL.NS`,
+      // so BSE listings (same symbol, different feed) would silently show NSE data.
       const results = (data.quotes || []).filter(q =>
-        q.exchange === 'NSI' || q.exchange === 'NSE' || q.exchange === 'BSE' || q.exchDisp === 'NSI'
+        typeof q.symbol === 'string' && q.symbol.endsWith('.NS') && (q.quoteType === 'EQUITY' || q.quoteType === 'ETF')
       ).map(q => ({
-        symbol: q.symbol.replace('.NS', '').replace('.BO', ''),
+        symbol: q.symbol.replace('.NS', ''),
         name: q.longname || q.shortname || q.symbol,
         exchange: q.exchange,
         type: q.quoteType,

@@ -207,6 +207,33 @@ describe('API', () => {
     });
   });
 
+  describe('/search', () => {
+    const searchBody = { quotes: [
+      { symbol: 'IRFC.NS', exchange: 'NSI', quoteType: 'EQUITY', longname: 'Indian Railway Finance Corporation Limited' },
+      { symbol: 'IRFC.BO', exchange: 'BSE', quoteType: 'EQUITY', longname: 'Indian Railway Finance Corporation Limited' },
+      { symbol: 'IRFCX', exchange: 'NAS', quoteType: 'MUTUALFUND', longname: 'Some US fund' },
+      { symbol: 'GOLDBEES.NS', exchange: 'NSI', quoteType: 'ETF', shortname: 'Gold ETF' },
+    ] };
+
+    it('returns NSE equities and ETFs only, without BSE duplicates or foreign funds', async () => {
+      upstream = () => jsonResponse(searchBody);
+      const { body } = await get('/search?q=IRFC');
+      expect(body.map((r) => r.symbol)).toEqual(['IRFC', 'GOLDBEES']);
+      expect(body[0]).toMatchObject({ name: 'Indian Railway Finance Corporation Limited', yahooSymbol: 'IRFC.NS' });
+    });
+
+    it('falls back to the static Nifty list when Yahoo fails', async () => {
+      upstream = () => { throw new Error('blocked'); };
+      const { body } = await get('/search?q=reli');
+      expect(body.map((r) => r.symbol)).toEqual(['RELIANCE']);
+    });
+
+    it('returns an empty list for an empty query without calling the provider', async () => {
+      expect((await get('/search?q=')).body).toEqual([]);
+      expect(calls).toHaveLength(0);
+    });
+  });
+
   describe('Yahoo crumb handshake', () => {
     it('retries a 401 with a session cookie and crumb, then reuses them', async () => {
       let crumbCalls = 0;
