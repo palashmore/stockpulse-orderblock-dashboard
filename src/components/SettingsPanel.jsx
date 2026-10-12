@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchAuthStatus, submitBrokerSession, disconnectBroker } from '../services/api';
 import { STATUS_META } from '../data/dataStatus';
+import { TIMEFRAMES } from '../data/timeframes';
+import { loadSettings, saveSettings, START_TABS } from '../data/settings';
 
 // Data source settings: sign in to the broker feed for the day. Your broker password is typed only
 // on ICICI Direct's own page; this app and the server never see it.
@@ -9,6 +11,14 @@ export default function SettingsPanel({ demoMode, headlineStatus, onConnectionCh
   const [pasted, setPasted] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [prefs, setPrefs] = useState(() => loadSettings(window.localStorage));
+  const [prefsSaved, setPrefsSaved] = useState(true);
+
+  const updatePrefs = (patch) => {
+    const next = { ...prefs, ...patch };
+    setPrefs(next);
+    setPrefsSaved(saveSettings(next, window.localStorage));
+  };
 
   const refresh = useCallback(async () => {
     setAuth(await fetchAuthStatus());
@@ -114,6 +124,26 @@ export default function SettingsPanel({ demoMode, headlineStatus, onConnectionCh
             <button onClick={disconnect} className="px-3 py-1.5 text-xs rounded bg-white/5 text-gray-300 hover:bg-white/10 cursor-pointer">Sign out of broker feed</button>
           </div>
         )}
+      </section>
+
+      <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-6 mb-3">Settings · Preferences</h2>
+      <section className="rounded-md px-4 py-3 max-w-2xl space-y-3" style={card}>
+        <label className="flex items-center justify-between gap-4 text-xs text-gray-300">
+          Default chart timeframe
+          <select value={prefs.defaultTimeframe} onChange={(e) => updatePrefs({ defaultTimeframe: e.target.value })} className="px-2 py-1 rounded text-gray-200 border border-gray-700 outline-none" style={{ backgroundColor: '#0d1117' }}>
+            {TIMEFRAMES.map((t) => <option key={t.id} value={t.id}>{t.id}</option>)}
+          </select>
+        </label>
+        <label className="flex items-center justify-between gap-4 text-xs text-gray-300">
+          Open on this screen
+          <select value={prefs.startTab} onChange={(e) => updatePrefs({ startTab: e.target.value })} className="px-2 py-1 rounded text-gray-200 border border-gray-700 outline-none" style={{ backgroundColor: '#0d1117' }}>
+            {START_TABS.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
+        <p className="text-[11px] text-gray-500">
+          Saved in this browser only and applied the next time the app opens. Secrets such as your API key are never stored here.
+          {!prefsSaved && <span style={{ color: '#ff1744' }}> Could not save: browser storage is blocked.</span>}
+        </p>
       </section>
 
       <p className="text-[11px] text-gray-500 mt-3 max-w-2xl">

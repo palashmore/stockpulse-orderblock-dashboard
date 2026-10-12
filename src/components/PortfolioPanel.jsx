@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchPortfolio } from '../services/api';
+import { loadSettings } from '../data/settings';
 
 const GREEN = '#00e676';
 const RED = '#ff1744';
@@ -21,7 +22,7 @@ function Stat({ label, value, color, sub }) {
 // local server, kept only in this component's state, and hidden behind a button until you ask.
 export default function PortfolioPanel({ onSelectStock }) {
   const [state, setState] = useState({ status: 'idle', data: null, error: '' });
-  const [hidden, setHidden] = useState(true);
+  const [hidden, setHidden] = useState(() => loadSettings(window.localStorage).hideAmounts);
 
   const load = useCallback(async () => {
     setState((s) => ({ ...s, status: 'loading', error: '' }));

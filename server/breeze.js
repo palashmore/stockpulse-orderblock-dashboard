@@ -156,13 +156,45 @@ export function mapCandles(rows, intraday) {
  * `request` and `now` are injectable for tests. The session lives in memory only: it is set by
  * connect() after the user signs in, and is cleared when the provider rejects it.
  */
-export function createBreezeClient({ appKey, secret, request = httpsRequest, now = Date.now } = {}) {
+/**
+ * Request budget for ICICI's documented limits (100 calls/minute, 5,000/day), kept below the caps
+ * so a burst cannot get the key throttled. The day rolls over at IST midnight.
+ */
+export function createBudget({ perMinute = 90, perDay = 4500, now = Date.now } = {}) {
+  let recent = [];
+  let day = '';
+  let used = 0;
+  const istDay = () => new Date(now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+
+  return {
+    /** Reserve one call. Returns false (and reserves nothing) when a limit would be exceeded. */
+    take() {
+      const t = now();
+      const today = istDay();
+      if (today !== day) { day = today; used = 0; }
+      recent = recent.filter((x) => t - x < 60000);
+      if (recent.length >= perMinute || used >= perDay) return false;
+      recent.push(t);
+      used++;
+      return true;
+    },
+    stats() {
+      const t = now();
+      if (istDay() !== day) { day = istDay(); used = 0; }
+      recent = recent.filter((x) => t - x < 60000);
+      return { minuteUsed: recent.length, minuteLimit: perMinute, dayUsed: used, dayLimit: perDay };
+    },
+  };
+}
+
+export function createBreezeClient({ appKey, secret, request = httpsRequest, now = Date.now, budget = createBudget({ now }) } = {}) {
   let sessionToken = null;
   let connectedAt = null;
 
   const configured = Boolean(appKey && secret);
 
   async function call(method, endpoint, payload, { authenticated = true } = {}) {
+    if (!budget.take()) throw new Error('Breeze request budget used up for now (ICICI limits: 100/minute, 5,000/day)');
     const body = JSON.stringify(payload);
     const timestamp = breezeTimestamp(now());
     const headers = { 'Content-Type': 'application/json' };
@@ -187,6 +219,18 @@ export function createBreezeClient({ appKey, secret, request = httpsRequest, now
   return {
     configured,
     isConnected: () => sessionToken !== null,
+    budget: () => budget.stats(),
+
+    /** Credentials for the live feed: the session token is base64 of "userId:token". Null when signed out. */
+    streamAuth() {
+      if (!sessionToken) return null;
+      try {
+        const [user, token] = Buffer.from(sessionToken, 'base64').toString('ascii').split(':');
+        return user && token ? { user, token } : null;
+      } catch {
+        return null;
+      }
+    },
     connectedAt: () => connectedAt,
 
     /** Exchange the one-time API session from the login redirect for a session token. */

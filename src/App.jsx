@@ -13,6 +13,9 @@ import AlertsPanel from './components/AlertsPanel';
 import ScannerPanel from './components/ScannerPanel';
 import SettingsPanel from './components/SettingsPanel';
 import PortfolioPanel from './components/PortfolioPanel';
+import DiagnosticsPanel from './components/DiagnosticsPanel';
+import { useLiveTick } from './hooks/useLiveTick';
+import { loadSettings } from './data/settings';
 import { useAlerts } from './hooks/useAlerts';
 import { useNifty50 } from './hooks/useNifty50';
 import { getTimeframe, aggregateCandles } from './data/timeframes';
@@ -47,7 +50,7 @@ function formatDataTime(asOf) {
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => {
     const tab = new URLSearchParams(window.location.search).get('tab');
-    return ['dashboard', 'orderblock', 'screener', 'watchlist', 'alerts', 'scanner', 'settings', 'portfolio'].includes(tab) ? tab : 'orderblock';
+    return ['dashboard', 'orderblock', 'screener', 'watchlist', 'alerts', 'scanner', 'settings', 'portfolio', 'diagnostics'].includes(tab) ? tab : loadSettings(window.localStorage).startTab;
   });
   const [selectedStock, setSelectedStock] = useState(NIFTY_STOCKS[0]);
 
@@ -71,9 +74,12 @@ export default function App() {
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
+  // Options/OI is off by default (no reliable source on this setup, and the NSE request only times out
+  // and floods the error log). Add ?options=1 to the address to try it.
+  const [optionsEnabled] = useState(() => new URLSearchParams(window.location.search).get('options') === '1');
   const [timeframe, setTimeframe] = useState(() => {
     const tf = new URLSearchParams(window.location.search).get('tf');
-    return getTimeframe(tf).id;
+    return getTimeframe(tf ?? loadSettings(window.localStorage).defaultTimeframe).id;
   });
   // Identifies the stock + timeframe the latest request was made for, so late responses are ignored
   const requestKey = useRef('');
@@ -112,7 +118,7 @@ export default function App() {
     const [historyData, quoteData, optData] = await Promise.all([
       fetchHistory(symbol, tf.range, tf.interval),
       fetchQuote(symbol),
-      fetchOptions(symbol),
+      optionsEnabled ? fetchOptions(symbol) : Promise.resolve(null),
     ]);
     // Ignore responses for a stock/timeframe the user has already navigated away from
     if (requestKey.current !== key) return;
@@ -124,7 +130,7 @@ export default function App() {
     setLastUpdate(new Date());
     setAttempted(true);
     setLoading(false);
-  }, [demoMode, backendUp, timeframe]);
+  }, [demoMode, backendUp, timeframe, optionsEnabled]);
 
   useEffect(() => {
     loadRealData(selectedStock.symbol);
@@ -170,9 +176,30 @@ export default function App() {
     return optionsData ? generateSignalsFromOptions(optionsData, candleData) : [];
   }, [demoMode, optionsData, candleData]);
 
+  // Live ticks from the broker stream (only when it exists and its exchange timestamp is verified)
+  const { tick } = useLiveTick(selectedStock.symbol, !demoMode && backendUp === true);
+  const liveQuote = useMemo(() => {
+    if (!realQuote || !tick || !tick.trusted) return realQuote;
+    const price = tick.price;
+    const change = realQuote.previousClose > 0 ? price - realQuote.previousClose : realQuote.change;
+    return {
+      ...realQuote,
+      price,
+      high: tick.high ?? realQuote.high,
+      low: tick.low ?? realQuote.low,
+      open: tick.open ?? realQuote.open,
+      volume: tick.volume ?? realQuote.volume,
+      change,
+      changePct: realQuote.previousClose > 0 ? (change / realQuote.previousClose) * 100 : realQuote.changePct,
+      asOf: tick.asOf ?? realQuote.asOf,
+      dataStatus: tick.status,
+      provider: 'ICICI Direct Breeze (live stream)',
+    };
+  }, [realQuote, tick]);
+
   const metrics = useMemo(() => {
-    return computeMetrics(analysisCandles, demoMode ? null : realQuote);
-  }, [demoMode, analysisCandles, realQuote]);
+    return computeMetrics(analysisCandles, demoMode ? null : liveQuote);
+  }, [demoMode, analysisCandles, liveQuote]);
 
   const headlineStatus = resolveHeadlineStatus({
     demoMode,
@@ -180,12 +207,12 @@ export default function App() {
     attempted,
     hasData: candleData.length > 0,
     refreshFailed,
-    quote: realQuote,
+    quote: liveQuote,
     history,
   });
 
   // Timestamp of the data on screen (provider time), falling back to nothing rather than the fetch time
-  const dataAsOf = realQuote?.asOf ?? history?.asOf ?? null;
+  const dataAsOf = liveQuote?.asOf ?? history?.asOf ?? null;
 
   const retry = () => {
     if (backendUp) loadRealData(selectedStock.symbol);
@@ -382,6 +409,8 @@ export default function App() {
         return renderScreener();
       case 'watchlist':
         return renderWatchlist();
+      case 'diagnostics':
+        return <DiagnosticsPanel />;
       case 'portfolio':
         return <PortfolioPanel onSelectStock={openStockFromOverview} />;
       case 'multichart':
@@ -420,9 +449,9 @@ export default function App() {
               status={headlineStatus}
               loading={loading}
               detail={{
-                provider: realQuote?.provider ?? history?.provider,
+                provider: liveQuote?.provider ?? history?.provider,
                 asOf: realQuote?.asOf ?? history?.asOf,
-                staleAgeSec: realQuote?.staleAgeSec ?? history?.staleAgeSec,
+                staleAgeSec: liveQuote?.staleAgeSec ?? history?.staleAgeSec,
               }}
             />
 

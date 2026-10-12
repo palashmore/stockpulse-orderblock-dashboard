@@ -58,18 +58,21 @@ export function splitCsvLine(line) {
 
 /**
  * Parse NSEScripMaster.txt into lookups. Only series EQ (and BE, SM, etc. are ignored) rows are kept.
- *   byCode: ICICI stock code (the file's ShortName) -> { symbol, name, isin }
- *   byIsin: ISIN -> same
+ *   byCode:   ICICI stock code (the file's ShortName) -> { symbol, name, isin, code, token }
+ *   byIsin:   ISIN -> same
+ *   bySymbol: NSE trading symbol -> same
+ * `token` is the exchange token used in live-feed subscriptions ("4.1!<token>"); null when absent.
  */
 export function parseNseMaster(text) {
   const lines = String(text).split(/\r?\n/).filter(Boolean);
-  if (lines.length < 2) return { byCode: new Map(), byIsin: new Map() };
+  if (lines.length < 2) return { byCode: new Map(), byIsin: new Map(), bySymbol: new Map() };
   const header = splitCsvLine(lines[0]);
   const col = (name) => header.indexOf(name);
   const iCode = col('ShortName');
   const iSeries = col('Series');
   const iName = col('CompanyName');
   const iIsin = col('ISINCode');
+  const iToken = col('Token');
   const iSymbol = header.length - 1; // ExchangeCode: the NSE trading symbol
   if (header[iSymbol] !== 'ExchangeCode' || [iCode, iSeries, iName, iIsin].some((i) => i < 0)) {
     throw new Error('Unexpected security master layout');
@@ -77,14 +80,17 @@ export function parseNseMaster(text) {
 
   const byCode = new Map();
   const byIsin = new Map();
+  const bySymbol = new Map();
   for (const line of lines.slice(1)) {
     const f = splitCsvLine(line);
     if (f.length < header.length || f[iSeries] !== 'EQ' || !f[iSymbol]) continue;
-    const info = { symbol: f[iSymbol], name: f[iName], isin: f[iIsin] };
+    const token = iToken >= 0 && /^[1-9]\d*$/.test(f[iToken]) ? f[iToken] : null;
+    const info = { symbol: f[iSymbol], name: f[iName], isin: f[iIsin], code: f[iCode], token };
     byCode.set(f[iCode], info);
+    bySymbol.set(f[iSymbol], info);
     if (f[iIsin]) byIsin.set(f[iIsin], info);
   }
-  return { byCode, byIsin };
+  return { byCode, byIsin, bySymbol };
 }
 
 /** Download and parse the master. `fetchFn` is injectable. */

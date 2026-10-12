@@ -64,7 +64,8 @@ describe('zip and master parsing', () => {
 
   it('keeps EQ series only and indexes by code and ISIN', () => {
     const m = parseNseMaster(MASTER_TEXT);
-    expect(m.byCode.get('RELIND')).toEqual({ symbol: 'RELIANCE', name: 'RELIANCE INDUSTRIES LTD', isin: 'INE002A01018' });
+    expect(m.byCode.get('RELIND')).toEqual({ symbol: 'RELIANCE', name: 'RELIANCE INDUSTRIES LTD', isin: 'INE002A01018', code: 'RELIND', token: null });
+    expect(m.bySymbol.get('RELIANCE').code).toBe('RELIND');
     expect(m.byIsin.get('INE002A01018').symbol).toBe('RELIANCE');
     expect(m.byCode.has('AAA')).toBe(false);
     expect(m.byCode.get('TEST').name).toBe('COMPANY, WITH "QUOTES" INC');

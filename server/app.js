@@ -14,6 +14,7 @@ import { buildOptionsChain } from './options.js';
 import { loadSecurityMaster } from './securityMaster.js';
 import { buildPortfolio, mapFunds } from './portfolio.js';
 import { BREEZE_STOCK_CODES } from './breezeCodes.js';
+import { createStreamHub, quoteKey } from './breezeStream.js';
 import { parseNseHolidays, getMarketState, markPartialCandles } from './marketCalendar.js';
 import { createRateLimiter, createConcurrencyLimiter } from './limits.js';
 import {
@@ -95,7 +96,9 @@ export function createApp({
   // Exchange holiday calendar source. Defaults to NSE's own list when the real fetch is in use and
   // is off when a custom fetchFn is injected (tests, fake feeds); then only weekends are detected.
   holidayFetch = rawFetch === globalThis.fetch ? globalThis.fetch : null,
-  loadMaster = null, // () => Promise<{ byCode, byIsin }>; defaults to ICICI's daily security master
+  loadMaster = null, // () => Promise<{ byCode, byIsin, bySymbol }>; defaults to ICICI's daily security master
+  streamHub = createStreamHub({ now }),
+  autoLoadMaster = rawFetch === globalThis.fetch || Boolean(loadMaster),
   breeze = createBreezeClient({ appKey: process.env.BREEZE_API_KEY, secret: process.env.BREEZE_API_SECRET }),
 } = {}) {
   const app = express();
@@ -229,6 +232,7 @@ export function createApp({
         return res.status(error.status).json({ error: error.message, dataStatus: DATA_STATUS.UNAVAILABLE });
       }
       console.error(`${label} error:`, error.message);
+      recordError(label, error.message);
       const stale = cache.getStale(key, policy.maxStale);
       if (stale) return respond(res, stale.entry, stale.ageMs);
       return res.status(503).json({
@@ -284,17 +288,74 @@ export function createApp({
 
   const marketAt = (ms) => getMarketState(ms, holidays);
 
+  // ============ DIAGNOSTICS SUPPORT ============
+  const recentErrors = [];
+  const recordError = (source, message) => {
+    recentErrors.push({ at: new Date(now()).toISOString(), source, message: String(message).slice(0, 200) });
+    if (recentErrors.length > 25) recentErrors.shift();
+  };
+  const startedAt = now();
+
+  // ============ INSTRUMENT UNIVERSE (ICICI security master) ============
+  // Maps any NSE equity symbol to ICICI's stock code and exchange token. Loaded without signing in
+  // (it is a public daily file); until it loads, the built-in Nifty 50 codes are used.
+  let master = null;
+  let masterLoadedAt = 0;
+  async function getMaster() {
+    if (master && now() - masterLoadedAt < 12 * 60 * MINUTE) return master;
+    try {
+      master = await (loadMaster ? loadMaster() : loadSecurityMaster(fetchFn));
+      masterLoadedAt = now();
+    } catch (error) {
+      console.error('Security master error:', error.message);
+      recordError('security-master', error.message);
+      masterLoadedAt = now() - 12 * 60 * MINUTE + 10 * MINUTE; // keep any older copy, retry in 10 minutes
+    }
+    return master;
+  }
+  const instrumentFor = (symbol) => master?.bySymbol?.get(symbol) ?? null;
+  const codeFor = (symbol) => instrumentFor(symbol)?.code ?? breezeCodeFor(symbol);
+  if (autoLoadMaster) getMaster();
+
+  // ============ LIVE FEED (Breeze tick stream) ============
+  function startStream() {
+    const auth = breeze.streamAuth();
+    if (auth) streamHub.start(auth);
+  }
+  function stopStream() {
+    streamHub.stop();
+    liveSubscribers.clear();
+  }
+  const liveSubscribers = new Map(); // symbol -> number of open /api/live connections
+
   // ============ BROKER FEED (ICICI Direct Breeze) ============
   // Used when the user has signed in and the symbol is mapped. Any failure falls back to Yahoo,
   // and every response names its provider, so the two feeds are never silently mixed.
 
   async function brokerQuote(symbol) {
-    const code = breeze.isConnected() ? breezeCodeFor(symbol) : null;
+    const code = breeze.isConnected() ? codeFor(symbol) : null;
     if (!code) return null;
     try {
       const quote = await breeze.getQuote(code, symbol);
       const nowMs = now();
-      const lastTradeMs = parseBreezeTime(quote.lastTradeTime);
+      let lastTradeMs = parseBreezeTime(quote.lastTradeTime);
+      // Prefer the live stream's tick when it is newer and its exchange timestamp is believable
+      const token = instrumentFor(symbol)?.token;
+      const tick = token ? streamHub.getQuote(token) : null;
+      if (tick && tick.lttTrusted && tick.lttMs > (lastTradeMs ?? 0) && nowMs - tick.receivedAt < 30000) {
+        quote.price = tick.last;
+        quote.close = tick.last;
+        if (tick.high !== null) quote.high = tick.high;
+        if (tick.low !== null) quote.low = tick.low;
+        if (tick.open !== null) quote.open = tick.open;
+        if (quote.previousClose > 0) {
+          quote.change = tick.last - quote.previousClose;
+          quote.changePct = (quote.change / quote.previousClose) * 100;
+        }
+        lastTradeMs = tick.lttMs;
+        quote.lastTradeTime = null;
+      }
+      if (token && breeze.isConnected()) streamHub.subscribe(quoteKey(token));
       const body = { ...quote };
       delete body.lastTradeTime;
       return {
@@ -306,12 +367,13 @@ export function createApp({
       };
     } catch (error) {
       console.error('Breeze quote error:', error.message);
+      recordError('breeze-quote', error.message);
       return null;
     }
   }
 
   async function brokerHistory(symbol, range, interval) {
-    const code = breeze.isConnected() ? breezeCodeFor(symbol) : null;
+    const code = breeze.isConnected() ? codeFor(symbol) : null;
     const days = RANGE_DAYS[range];
     if (!code || !BREEZE_INTERVALS[interval] || days === undefined) return null;
     try {
@@ -339,6 +401,7 @@ export function createApp({
       };
     } catch (error) {
       console.error('Breeze history error:', error.message);
+      recordError('breeze-history', error.message);
       return null;
     }
   }
@@ -357,6 +420,27 @@ export function createApp({
     const cached = cache.getFresh(cacheKey, POLICY.search.ttl);
     if (cached) return res.json(cached);
 
+    // Matches from ICICI's NSE instrument list work even when Yahoo is unreachable
+    const needle = query.trim().toLowerCase();
+    const masterHits = [];
+    if (master && needle.length >= 2) {
+      for (const info of master.bySymbol.values()) {
+        const sym = info.symbol.toLowerCase();
+        if (sym.startsWith(needle) || sym.includes(needle) || (info.name || '').toLowerCase().includes(needle)) {
+          masterHits.push({ symbol: info.symbol, name: info.name, exchange: 'NSE', type: 'EQUITY', yahooSymbol: `${info.symbol}.NS` });
+          if (masterHits.length >= 40) break;
+        }
+      }
+      masterHits.sort((a, b) => {
+        const rank = (x) => (x.symbol.toLowerCase() === needle ? 0 : x.symbol.toLowerCase().startsWith(needle) ? 1 : 2);
+        return rank(a) - rank(b) || a.symbol.localeCompare(b.symbol);
+      });
+    }
+    const mergeHits = (yahooResults) => {
+      const seen = new Set();
+      return [...yahooResults, ...masterHits.slice(0, 10)].filter((r) => !seen.has(r.symbol) && seen.add(r.symbol)).slice(0, 15);
+    };
+
     try {
       const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&lang=en-US&region=IN&quotesCount=10&newsCount=0&enableFuzzyQuery=false&quotesQueryId=tss_match_phrase_query`;
       const data = await fetchJson(url, YAHOO_HEADERS);
@@ -373,11 +457,13 @@ export function createApp({
         yahooSymbol: q.symbol,
       }));
 
-      cache.set(cacheKey, results);
-      res.json(results);
+      const merged = mergeHits(results);
+      cache.set(cacheKey, merged);
+      res.json(merged);
     } catch (error) {
       console.error('Search error:', error.message);
-      // Fallback: filter the static Nifty 50 symbol list
+      // Yahoo failed: the instrument list, else the static Nifty 50 symbols
+      if (masterHits.length > 0) return res.json(masterHits.slice(0, 15));
       const lower = query.toLowerCase();
       res.json(
         NIFTY50_SYMBOLS
@@ -613,6 +699,7 @@ export function createApp({
     }
     try {
       await breeze.connect(session);
+      startStream();
       res.json({ connected: true });
     } catch (error) {
       res.status(502).json({ connected: false, error: error.message });
@@ -620,22 +707,9 @@ export function createApp({
   });
 
   // ---- portfolio (read-only; local machine only; personal data, so never cached beyond one minute)
-  let master = null;
-  let masterLoadedAt = 0;
   const niftyByCode = Object.fromEntries(Object.entries(BREEZE_STOCK_CODES).map(([symbol, code]) => [code, symbol]));
   let portfolioCache = null;
 
-  async function getMaster() {
-    if (master && now() - masterLoadedAt < 12 * 60 * MINUTE) return master;
-    try {
-      master = await (loadMaster ? loadMaster() : loadSecurityMaster(fetchFn));
-      masterLoadedAt = now();
-    } catch (error) {
-      console.error('Security master error:', error.message);
-      masterLoadedAt = now() - 12 * 60 * MINUTE + 10 * MINUTE; // keep any older copy, retry in 10 minutes
-    }
-    return master;
-  }
 
   app.get('/api/portfolio', localOnly, async (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -694,8 +768,78 @@ export function createApp({
 
   app.post('/api/auth/breeze/disconnect', localOnly, (req, res) => {
     breeze.disconnect();
+    stopStream();
     portfolioCache = null;
     res.json({ connected: false });
+  });
+
+  // ---- API diagnostics: what the server is doing and how much of ICICI's request budget is used
+  app.get('/api/diagnostics', localOnly, async (req, res) => {
+    await ensureHolidays();
+    res.set('Cache-Control', 'no-store');
+    const market = marketAt(now());
+    res.json({
+      generatedAt: new Date(now()).toISOString(),
+      uptimeSec: Math.round((now() - startedAt) / 1000),
+      market: {
+        state: market.state, reason: market.reason, holiday: market.holiday, lastSession: market.lastSession,
+        calendar: market.calendar, holidaysLoaded: holidays ? holidays.size : 0,
+      },
+      broker: {
+        name: 'ICICI Direct Breeze',
+        configured: breeze.configured,
+        connected: breeze.isConnected(),
+        connectedAt: breeze.connectedAt() ? new Date(breeze.connectedAt()).toISOString() : null,
+        budget: breeze.budget(),
+      },
+      stream: streamHub.health(),
+      instruments: { loaded: Boolean(master), count: master ? master.bySymbol.size : 0, loadedAt: masterLoadedAt ? new Date(masterLoadedAt).toISOString() : null },
+      yahoo: { sessionReady: Boolean(yahooAuth) },
+      cacheEntries: cache.size(),
+      liveClients: [...liveSubscribers.values()].reduce((s, n) => s + n, 0),
+      recentErrors: [...recentErrors].reverse(),
+    });
+  });
+
+  // ---- live ticks for one stock as server-sent events. Sends only what the broker stream supplies;
+  // the `trusted` flag says whether the exchange timestamp could be verified against our clock.
+  app.get('/api/live/:symbol', (req, res) => {
+    const symbol = symbolOr400(req, res);
+    if (!symbol) return;
+    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+    res.flushHeaders();
+
+    const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const token = instrumentFor(symbol)?.token ?? null;
+    if (!breeze.isConnected() || !streamHub.isConnected() || !token) {
+      send('status', { live: false, reason: !breeze.isConnected() ? 'broker not signed in' : !token ? 'instrument not mapped' : 'stream not connected' });
+      return res.end();
+    }
+
+    const key = quoteKey(token);
+    liveSubscribers.set(symbol, (liveSubscribers.get(symbol) ?? 0) + 1);
+    streamHub.subscribe(key);
+    send('status', { live: true });
+
+    const emit = (q) => send('tick', {
+      symbol, price: q.last, open: q.open, high: q.high, low: q.low, bid: q.bestBid, ask: q.bestAsk, volume: q.totalQty,
+      asOf: q.lttMs === null ? null : new Date(q.lttMs).toISOString(), trusted: q.lttTrusted,
+      status: q.lttTrusted && marketAt(now()).isOpen && now() - q.lttMs <= 2 * MINUTE ? 'LIVE' : q.lttTrusted ? 'MARKET_CLOSED' : 'DELAYED',
+    });
+    const current = streamHub.getQuote(token);
+    if (current) emit(current);
+    const off = streamHub.onTick((e) => { if (e.type === 'quote' && e.quote.token === token) emit(e.quote); });
+    const heartbeat = setInterval(() => res.write(': keep-alive\n\n'), 15000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      off();
+      const left = (liveSubscribers.get(symbol) ?? 1) - 1;
+      if (left <= 0) {
+        liveSubscribers.delete(symbol);
+        streamHub.unsubscribe(key);
+      } else liveSubscribers.set(symbol, left);
+    });
   });
 
   app.get('/api/market-status', async (req, res) => {
@@ -703,5 +847,5 @@ export function createApp({
     res.json(marketAt(now()));
   });
 
-  return { app, refreshNSECookies, breeze };
+  return { app, refreshNSECookies, breeze, streamHub };
 }

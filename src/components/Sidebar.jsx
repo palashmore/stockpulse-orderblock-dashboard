@@ -11,6 +11,7 @@ import {
   Layers,
   Eye,
   Wallet,
+  Gauge,
 } from 'lucide-react';
 
 const menuItems = [
@@ -22,6 +23,7 @@ const menuItems = [
   { icon: Wallet, label: 'Portfolio', id: 'portfolio' },
   { icon: Eye, label: 'Scanner', id: 'scanner' },
   { icon: MessageSquare, label: 'Alerts', id: 'alerts' },
+  { icon: Gauge, label: 'API Diagnostics', id: 'diagnostics' },
 ];
 
 const bottomItems = [

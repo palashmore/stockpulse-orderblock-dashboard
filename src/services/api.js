@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:3001/api';
+export const API_BASE = 'http://localhost:3001/api';
 
 // Helper to make API calls with timeout and error handling.
 // Resolves to { data, headers } on success, null on any failure.
@@ -113,4 +113,9 @@ export async function fetchPortfolio() {
   } catch {
     return { error: 'Could not reach the server' };
   }
+}
+
+// Server health, broker request budget and live-stream status (loopback-only on the server)
+export async function fetchDiagnostics() {
+  return await apiFetch('/diagnostics');
 }
