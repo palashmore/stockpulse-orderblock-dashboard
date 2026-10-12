@@ -61,6 +61,17 @@ The **IPOs** tab lists mainboard issues only (SME, debt and withdrawal windows a
 * The feed is an unofficial website source, so it is labelled `DELAYED` (or `STALE` when a cached copy is shown after a failure) and never presented as live. If NSE cannot be reached nothing is shown instead of a guess.
 * Recently listed issues show the latest price against the issue price (not the listing-day gain). Grey-market premium is not shown. Information only; not a recommendation to apply.
 
+### Portfolio review, allocation and correlation
+With the Breeze sign-in, the **Portfolio** screen has four tabs: Holdings, **Review: buy, hold, sell**, Allocation, and Correlation & risk.
+
+* **Review** gives each holding a long-term view (50- and 200-day averages), a short-term view (the Swing screen's rules, RSI, distance from the 20-day average) and a rule-based action: add (rule match), hold, hold-don't-add, hold-watch-closely, consider trimming, or review reduce/exit. Every label lists the reasons, and the rules are written on the screen under "How each label is decided".
+* **Allocation** shows weight by stock, sector and size (from NSE index membership) and how concentrated the portfolio is. **Correlation & risk** shows a heatmap of daily-return correlation, closely correlated pairs, and the volatility and worst fall of today's weights replayed over the last year.
+* ICICI's holdings feed has no buy price, so profit or loss needs your average buy price: type it into the optional column. It is saved in this browser only.
+* These are rule matches on past daily prices, not investment advice. They do not know your goals, time horizon or taxes. The app is read-only and cannot place orders.
+
+### Day / night theme
+The sun/moon button in the top bar flips between the night (dark) and day (light) theme; **Settings** also offers "Follow my device". The choice is saved in this browser.
+
 ---
 
 ## 🚀 Quick Start Guide

@@ -1,0 +1,99 @@
+/*
+ * Day (light) theme. The app styles most surfaces with inline hex colours,
+ * so this file maps each dark-theme neutral and accent to a light-theme one (inline styles are serialised by the
+ * browser as rgb(), which is what the attribute selectors match). Tailwind's gray/white/accent variables are
+ * remapped at the top. A test (themeCoverage.test.js) fails when a new neutral colour is used in a component
+ * without a mapping here.
+ */
+html[data-theme='day'] {
+  color-scheme: light;
+  --bg-primary: #f1f5f9;
+  --bg-secondary: #e9eef5;
+  --bg-tertiary: #e2e8f0;
+  --bg-card: #ffffff;
+  --border-color: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --accent-green: #00a152;
+  --accent-red: #d50000;
+  --accent-yellow: #a87a00;
+  --accent-cyan: #0086a3;
+
+  /* Tailwind scale, inverted so "text-gray-300" is dark text on a light page */
+  --color-white: #0f172a;
+  --color-gray-100: #0f172a;
+  --color-gray-200: #1e293b;
+  --color-gray-300: #334155;
+  --color-gray-400: #475569;
+  --color-gray-500: #64748b;
+  --color-gray-600: #6b7a90;
+  --color-gray-700: #b6c2d2;
+  --color-green-300: #166534;
+  --color-green-400: #15803d;
+  --color-red-300: #b91c1c;
+  --color-red-400: #dc2626;
+  --color-yellow-400: #a16207;
+  --color-blue-400: #1d4ed8;
+}
+
+html[data-theme='day'] ::-webkit-scrollbar-track { background: var(--bg-primary); }
+html[data-theme='day'] ::-webkit-scrollbar-thumb { background: #cbd5e1; }
+html[data-theme='day'] .sidebar-icon:hover { background: rgba(15, 23, 42, 0.06); }
+html[data-theme='day'] .shimmer { background: linear-gradient(90deg, transparent, rgba(15, 23, 42, 0.05), transparent); background-size: 200% 100%; }
+html[data-theme='day'] select, html[data-theme='day'] option { color-scheme: light; }
+
+/* ---- surfaces (background colours set inline) */
+html[data-theme='day'] [style*="background-color: rgb(10, 14, 23)"],
+html[data-theme='day'] [style*="background: rgb(10, 14, 23)"] { background-color: #f1f5f9 !important; }
+html[data-theme='day'] [style*="background-color: rgb(13, 17, 23)"],
+html[data-theme='day'] [style*="background: rgb(13, 17, 23)"] { background-color: #ffffff !important; }
+html[data-theme='day'] [style*="background-color: rgb(21, 29, 43)"],
+html[data-theme='day'] [style*="background: rgb(21, 29, 43)"] { background-color: #ffffff !important; }
+html[data-theme='day'] [style*="background-color: rgb(17, 24, 39)"],
+html[data-theme='day'] [style*="background: rgb(17, 24, 39)"] { background-color: #f8fafc !important; }
+html[data-theme='day'] [style*="background-color: rgb(26, 35, 50)"],
+html[data-theme='day'] [style*="background: rgb(26, 35, 50)"] { background-color: #e2e8f0 !important; }
+html[data-theme='day'] [style*="background-color: rgb(30, 45, 61)"],
+html[data-theme='day'] [style*="background: rgb(30, 45, 61)"] { background-color: #e2e8f0 !important; }
+html[data-theme='day'] [style*="background-color: rgba(17, 24, 39,"] { background-color: rgba(255, 255, 255, 0.75) !important; }
+html[data-theme='day'] [style*="background-color: rgba(13, 17, 23,"] { background-color: rgba(255, 255, 255, 0.92) !important; }
+html[data-theme='day'] [style*="background-color: rgba(30, 45, 61,"] { background-color: rgba(148, 163, 184, 0.16) !important; }
+html[data-theme='day'] [style*="background-color: rgba(255, 255, 255, 0.04)"] { background-color: rgba(15, 23, 42, 0.04) !important; }
+html[data-theme='day'] [style*="background-color: rgba(255, 255, 255, 0.03)"] { background-color: rgba(15, 23, 42, 0.03) !important; }
+html[data-theme='day'] [style*="background-color: rgba(255, 255, 255, 0.08)"] { background-color: rgba(15, 23, 42, 0.07) !important; }
+
+/* ---- borders */
+html[data-theme='day'] [style*="solid rgb(30, 45, 61)"] { border-color: #cbd5e1 !important; }
+html[data-theme='day'] [style*="solid rgba(30, 45, 61"] { border-color: rgba(148, 163, 184, 0.5) !important; }
+html[data-theme='day'] [style*="dashed rgba(100, 116, 139"] { border-color: rgba(100, 116, 139, 0.5) !important; }
+
+/* ---- text and accent colours (set inline) */
+html[data-theme='day'] [style^="color: rgb(209, 213, 219)"],
+html[data-theme='day'] [style*="; color: rgb(209, 213, 219)"] { color: #1e293b !important; }
+html[data-theme='day'] [style^="color: rgb(156, 163, 175)"],
+html[data-theme='day'] [style*="; color: rgb(156, 163, 175)"] { color: #475569 !important; }
+html[data-theme='day'] [style^="color: rgb(148, 163, 184)"],
+html[data-theme='day'] [style*="; color: rgb(148, 163, 184)"] { color: #475569 !important; }
+html[data-theme='day'] [style^="color: rgb(226, 232, 240)"],
+html[data-theme='day'] [style*="; color: rgb(226, 232, 240)"] { color: #0f172a !important; }
+html[data-theme='day'] [style^="color: rgb(0, 230, 118)"],
+html[data-theme='day'] [style*="; color: rgb(0, 230, 118)"] { color: #00a152 !important; }
+html[data-theme='day'] [style^="color: rgb(255, 23, 68)"],
+html[data-theme='day'] [style*="; color: rgb(255, 23, 68)"] { color: #d50000 !important; }
+html[data-theme='day'] [style^="color: rgb(255, 214, 0)"],
+html[data-theme='day'] [style*="; color: rgb(255, 214, 0)"] { color: #a87a00 !important; }
+html[data-theme='day'] [style^="color: rgb(0, 229, 255)"],
+html[data-theme='day'] [style*="; color: rgb(0, 229, 255)"] { color: #0086a3 !important; }
+html[data-theme='day'] [style^="color: rgb(255, 145, 0)"],
+html[data-theme='day'] [style*="; color: rgb(255, 145, 0)"] { color: #e65100 !important; }
+html[data-theme='day'] [style^="color: rgb(0, 176, 255)"],
+html[data-theme='day'] [style*="; color: rgb(0, 176, 255)"] { color: #0277bd !important; }
+html[data-theme='day'] [style^="color: rgb(33, 150, 243)"],
+html[data-theme='day'] [style*="; color: rgb(33, 150, 243)"] { color: #1565c0 !important; }
+html[data-theme='day'] [style^="color: rgb(186, 104, 200)"],
+html[data-theme='day'] [style*="; color: rgb(186, 104, 200)"] { color: #8e24aa !important; }
+html[data-theme='day'] [style^="color: rgb(105, 240, 174)"],
+html[data-theme='day'] [style*="; color: rgb(105, 240, 174)"] { color: #00a152 !important; }
+html[data-theme='day'] [style^="color: rgb(144, 164, 174)"],
+html[data-theme='day'] [style*="; color: rgb(144, 164, 174)"] { color: #546e7a !important; }

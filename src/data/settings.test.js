@@ -28,14 +28,14 @@ describe('settings', () => {
   it('falls back to defaults field by field for invalid values', () => {
     expect(validateSettings(null)).toEqual(DEFAULT_SETTINGS);
     expect(validateSettings({ defaultTimeframe: '7m', startTab: 'nope', hideAmounts: 'yes' })).toEqual(DEFAULT_SETTINGS);
-    expect(validateSettings({ defaultTimeframe: '5m', startTab: 'screener', hideAmounts: false })).toEqual({ defaultTimeframe: '5m', startTab: 'screener', hideAmounts: false, chartIndicators: DEFAULT_SETTINGS.chartIndicators, index: 'nifty50' });
+    expect(validateSettings({ defaultTimeframe: '5m', startTab: 'screener', hideAmounts: false })).toEqual({ defaultTimeframe: '5m', startTab: 'screener', hideAmounts: false, chartIndicators: DEFAULT_SETTINGS.chartIndicators, index: 'nifty50', theme: 'night' });
     expect(validateSettings({ defaultTimeframe: '5m', startTab: 'x' })).toMatchObject({ defaultTimeframe: '5m', startTab: 'orderblock' });
   });
 
   it('round-trips and survives corrupt or unavailable storage', () => {
     const s = memory();
     expect(saveSettings({ defaultTimeframe: '15m', startTab: 'scanner', hideAmounts: false }, s)).toBe(true);
-    expect(loadSettings(s)).toEqual({ defaultTimeframe: '15m', startTab: 'scanner', hideAmounts: false, chartIndicators: DEFAULT_SETTINGS.chartIndicators, index: 'nifty50' });
+    expect(loadSettings(s)).toEqual({ defaultTimeframe: '15m', startTab: 'scanner', hideAmounts: false, chartIndicators: DEFAULT_SETTINGS.chartIndicators, index: 'nifty50', theme: 'night' });
     expect(loadSettings(memory('{not json'))).toEqual(DEFAULT_SETTINGS);
     expect(loadSettings(memory())).toEqual(DEFAULT_SETTINGS);
     const broken = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('full'); } };

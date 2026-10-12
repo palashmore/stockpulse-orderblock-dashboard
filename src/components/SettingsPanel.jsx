@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { fetchAuthStatus, submitBrokerSession, disconnectBroker } from '../services/api';
 import { STATUS_META } from '../data/dataStatus';
 import { TIMEFRAMES } from '../data/timeframes';
-import { loadSettings, saveSettings, START_TABS } from '../data/settings';
+import { loadSettings, saveSettings, START_TABS, THEME_PREFS } from '../data/settings';
+import { useTheme, THEME_LABELS } from '../hooks/useTheme';
 
 const BREEZE_PORTAL_HOME = 'https://api.icicidirect.com/apiuser/home';
 
@@ -15,9 +16,11 @@ export default function SettingsPanel({ demoMode, headlineStatus, onConnectionCh
   const [busy, setBusy] = useState(false);
   const [prefs, setPrefs] = useState(() => loadSettings(window.localStorage));
   const [prefsSaved, setPrefsSaved] = useState(true);
+  const { pref: themePref, setPref: setThemePref } = useTheme();
 
   const updatePrefs = (patch) => {
-    const next = { ...prefs, ...patch };
+    // Merge into what is stored now, so a change made elsewhere (the day/night button) is not overwritten
+    const next = { ...loadSettings(window.localStorage), ...patch };
     setPrefs(next);
     setPrefsSaved(saveSettings(next, window.localStorage));
   };
@@ -139,6 +142,12 @@ export default function SettingsPanel({ demoMode, headlineStatus, onConnectionCh
           Default chart timeframe
           <select value={prefs.defaultTimeframe} onChange={(e) => updatePrefs({ defaultTimeframe: e.target.value })} className="px-2 py-1 rounded text-gray-200 border border-gray-700 outline-none" style={{ backgroundColor: '#0d1117' }}>
             {TIMEFRAMES.map((t) => <option key={t.id} value={t.id}>{t.id}</option>)}
+          </select>
+        </label>
+        <label className="flex items-center justify-between gap-4 text-xs text-gray-300">
+          Colour theme
+          <select value={themePref} onChange={(e) => setThemePref(e.target.value)} className="px-2 py-1 rounded text-gray-200 border border-gray-700 outline-none" style={{ backgroundColor: '#0d1117' }}>
+            {THEME_PREFS.map((t) => <option key={t} value={t}>{THEME_LABELS[t]}</option>)}
           </select>
         </label>
         <label className="flex items-center justify-between gap-4 text-xs text-gray-300">

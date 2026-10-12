@@ -8,12 +8,15 @@ export const SETTINGS_KEY = 'stockpulse.settings.v1';
 
 export const START_TABS = ['lists', 'multichart', 'orderblock', 'intraday', 'swing', 'analysis', 'dashboard', 'books', 'screener', 'scanner', 'watchlist', 'alerts', 'portfolio'];
 
+export const THEME_PREFS = ['night', 'day', 'auto']; // auto follows the device's light/dark setting
+
 export const DEFAULT_SETTINGS = {
   defaultTimeframe: 'D',
   startTab: 'orderblock',
   hideAmounts: true,
   chartIndicators: DEFAULT_INDICATORS,
   index: 'nifty50',
+  theme: 'night',
 };
 
 const INDICATOR_KEYS = [...OVERLAYS, ...PANES].map((o) => o.key);
@@ -33,6 +36,7 @@ export function validateSettings(raw) {
     startTab: START_TABS.includes(r.startTab) ? r.startTab : DEFAULT_SETTINGS.startTab,
     hideAmounts: typeof r.hideAmounts === 'boolean' ? r.hideAmounts : DEFAULT_SETTINGS.hideAmounts,
     chartIndicators: validateIndicators(r.chartIndicators),
+    theme: THEME_PREFS.includes(r.theme) ? r.theme : DEFAULT_SETTINGS.theme,
     index: typeof r.index === 'string' && /^[a-z0-9]{2,30}$/.test(r.index) ? r.index : DEFAULT_SETTINGS.index,
   };
 }

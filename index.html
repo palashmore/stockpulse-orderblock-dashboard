@@ -15,8 +15,19 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      // Apply the saved day/night theme before the first paint, so there is no flash of the wrong colours
+      try {
+        var saved = JSON.parse(localStorage.getItem('stockpulse.settings.v1'));
+        var pref = saved && saved.theme;
+        var light = pref === 'day' || (pref === 'auto' && window.matchMedia && !window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.setAttribute('data-theme', light ? 'day' : 'night');
+        if (light) document.querySelector('meta[name="theme-color"]').setAttribute('content', '#f1f5f9');
+      } catch (e) { document.documentElement.setAttribute('data-theme', 'night'); }
+    </script>
     <style>
       html, body, #root { height: 100%; margin: 0; padding: 0; background: #0a0e17; }
+      html[data-theme='day'], html[data-theme='day'] body, html[data-theme='day'] #root { background: #f1f5f9; }
     </style>
   </head>
   <body>

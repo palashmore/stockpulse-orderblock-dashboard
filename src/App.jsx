@@ -24,6 +24,7 @@ import IpoPanel from './components/IpoPanel';
 import ErrorBoundary from './components/ErrorBoundary';
 import { TAB_IDS } from './components/Sidebar';
 import MobileNav from './components/MobileNav';
+import ThemeToggle from './components/ThemeToggle';
 import { useLiveTick } from './hooks/useLiveTick';
 import { loadSettings, saveSettings } from './data/settings';
 import MultiTimeframePanel from './components/MultiTimeframePanel';
@@ -455,6 +456,8 @@ export default function App() {
         >
           <SearchBar selectedStock={selectedStock} onSelectStock={handleSelectStock} />
           <div className="flex items-center gap-3 flex-shrink-0">
+            <ThemeToggle />
+
             {/* Data status indicator */}
             <DataStatusBadge
               status={headlineStatus}

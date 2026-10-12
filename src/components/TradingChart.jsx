@@ -10,8 +10,11 @@ import {
 } from 'lightweight-charts';
 import { rsi, macd, adx } from '../data/indicators';
 import { OVERLAYS, DEFAULT_INDICATORS, toLine, compare, normaliseTime, buildSignalMarkers } from '../data/chartConfig';
+import { useTheme } from '../hooks/useTheme';
+import { chartColors } from '../data/theme';
 
 export default function TradingChart({ candleData, orderBlocks = [], indicators = DEFAULT_INDICATORS, signals = [], trades = [], selectedId = null, onSelectSignal, intraday = false }) {
+  const { theme } = useTheme();
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const candleSeriesRef = useRef(null);
@@ -31,23 +34,24 @@ export default function TradingChart({ candleData, orderBlocks = [], indicators 
     const container = containerRef.current;
     if (!container || !candleData || candleData.length === 0) return undefined;
 
+    const colors = chartColors(theme);
     const chart = createChart(container, {
-      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#64748b', fontSize: 11, panes: { separatorColor: '#1e2d3d' } },
-      grid: { vertLines: { color: 'rgba(30, 45, 61, 0.3)' }, horzLines: { color: 'rgba(30, 45, 61, 0.3)' } },
+      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: colors.text, fontSize: 11, panes: { separatorColor: colors.separator } },
+      grid: { vertLines: { color: colors.grid }, horzLines: { color: colors.grid } },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: 'rgba(0, 230, 118, 0.3)', width: 1, style: 2, labelBackgroundColor: '#1a2332' },
-        horzLine: { color: 'rgba(0, 230, 118, 0.3)', width: 1, style: 2, labelBackgroundColor: '#1a2332' },
+        vertLine: { color: colors.crosshair, width: 1, style: 2, labelBackgroundColor: colors.labelBg },
+        horzLine: { color: colors.crosshair, width: 1, style: 2, labelBackgroundColor: colors.labelBg },
       },
-      rightPriceScale: { borderColor: '#1e2d3d', scaleMargins: { top: 0.1, bottom: 0.25 } },
-      timeScale: { borderColor: '#1e2d3d', timeVisible: intraday, secondsVisible: false },
+      rightPriceScale: { borderColor: colors.border, scaleMargins: { top: 0.1, bottom: 0.25 } },
+      timeScale: { borderColor: colors.border, timeVisible: intraday, secondsVisible: false },
       width: container.clientWidth || 600,
       height: container.clientHeight || 400,
     });
     chartRef.current = chart;
 
     const candles = chart.addSeries(CandlestickSeries, {
-      upColor: '#00e676', downColor: '#ff1744', borderDownColor: '#ff1744', borderUpColor: '#00e676', wickDownColor: '#ff1744', wickUpColor: '#00e676',
+      upColor: colors.up, downColor: colors.down, borderDownColor: colors.down, borderUpColor: colors.up, wickDownColor: colors.down, wickUpColor: colors.up,
     });
     candles.setData(candleData);
     candleSeriesRef.current = candles;
@@ -58,7 +62,7 @@ export default function TradingChart({ candleData, orderBlocks = [], indicators 
     volume.setData(
       candleData
         .filter((d) => Number.isFinite(d.volume))
-        .map((d) => ({ time: d.time, value: d.volume, color: d.close >= d.open ? 'rgba(0, 230, 118, 0.15)' : 'rgba(255, 23, 68, 0.15)' }))
+        .map((d) => ({ time: d.time, value: d.volume, color: d.close >= d.open ? colors.volumeUp : colors.volumeDown }))
     );
 
     // Overlays on the price pane
@@ -138,7 +142,7 @@ export default function TradingChart({ candleData, orderBlocks = [], indicators 
     };
     // The chart is rebuilt when the data, indicator set or markers change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candleData, orderBlocks, indicatorKey, markers, intraday]);
+  }, [candleData, orderBlocks, indicatorKey, markers, intraday, theme]);
 
   // Entry / stop / target lines for the selected signal, without rebuilding the chart
   useEffect(() => {
