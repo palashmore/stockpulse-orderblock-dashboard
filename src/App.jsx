@@ -9,6 +9,8 @@ import Watchlist from './components/Watchlist';
 import OIAnalysisPanel from './components/OIAnalysisPanel';
 import RankedBoard from './components/RankedBoard';
 import MarketXRay from './components/MarketXRay';
+import AlertsPanel from './components/AlertsPanel';
+import { useAlerts } from './hooks/useAlerts';
 import { useNifty50 } from './hooks/useNifty50';
 import { getTimeframe, aggregateCandles } from './data/timeframes';
 import { DataStatusBadge, SimulationBanner, UnavailableState } from './components/DataStatusBadge';
@@ -34,7 +36,7 @@ import {
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => {
     const tab = new URLSearchParams(window.location.search).get('tab');
-    return ['dashboard', 'orderblock', 'screener', 'watchlist'].includes(tab) ? tab : 'orderblock';
+    return ['dashboard', 'orderblock', 'screener', 'watchlist', 'alerts'].includes(tab) ? tab : 'orderblock';
   });
   const [selectedStock, setSelectedStock] = useState(NIFTY_STOCKS[0]);
 
@@ -42,6 +44,7 @@ export default function App() {
   const [demoMode] = useState(() => isDemoModeRequested(window.location.search));
 
   const nifty = useNifty50(demoMode);
+  const alertsApi = useAlerts(nifty);
   const [screenerPanel, setScreenerPanel] = useState('board');
 
   // Real data state. backendUp is null until the first health check completes.
@@ -343,7 +346,7 @@ export default function App() {
       case 'scanner':
         return renderPlaceholder('Live Scanner');
       case 'alerts':
-        return renderPlaceholder('Price Alerts');
+        return <AlertsPanel nifty={nifty} alertsApi={alertsApi} selectedStock={selectedStock} demoMode={demoMode} />;
       case 'settings':
         return renderPlaceholder('Settings');
       default:

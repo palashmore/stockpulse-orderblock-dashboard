@@ -87,7 +87,10 @@ export function createApp({
   let nseCookies = '';
 
   app.disable('x-powered-by');
-  app.use(cors(process.env.CORS_ORIGIN ? { origin: process.env.CORS_ORIGIN.split(',') } : undefined));
+  // The browser can only read the X-Data-* status headers (used by /api/nifty50) if they are exposed
+  const corsOptions = { exposedHeaders: ['X-Data-Status', 'X-Data-Provider', 'X-Data-Fetched-At', 'X-Data-As-Of', 'X-Data-Stale-Age-Sec'] };
+  if (process.env.CORS_ORIGIN) corsOptions.origin = process.env.CORS_ORIGIN.split(',');
+  app.use(cors(corsOptions));
   app.use(createRateLimiter({ ...rateLimit, now }));
   app.use(express.json());
 

@@ -308,6 +308,13 @@ describe('API', () => {
       expect(res.headers.get('x-data-status')).toBe('DELAYED');
     });
 
+    it('exposes the status headers to cross-origin browser code', async () => {
+      upstream = () => jsonResponse(yahooQuote());
+      const res = await realFetch(`${base}/nifty50`, { headers: { Origin: 'http://localhost:5173' } });
+      const exposed = (res.headers.get('access-control-expose-headers') || '').toLowerCase();
+      for (const h of ['x-data-status', 'x-data-as-of', 'x-data-stale-age-sec']) expect(exposed).toContain(h);
+    });
+
     it('marks cached data STALE through headers when the provider fails', async () => {
       upstream = () => jsonResponse(yahooQuote());
       await get('/nifty50');
