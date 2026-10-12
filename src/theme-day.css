@@ -69,6 +69,8 @@ html[data-theme='day'] [style*="solid rgba(30, 45, 61"] { border-color: rgba(148
 html[data-theme='day'] [style*="dashed rgba(100, 116, 139"] { border-color: rgba(100, 116, 139, 0.5) !important; }
 
 /* ---- text and accent colours (set inline) */
+html[data-theme='day'] [style^="color: rgb(203, 213, 225)"],
+html[data-theme='day'] [style*="; color: rgb(203, 213, 225)"] { color: #334155 !important; }
 html[data-theme='day'] [style^="color: rgb(209, 213, 219)"],
 html[data-theme='day'] [style*="; color: rgb(209, 213, 219)"] { color: #1e293b !important; }
 html[data-theme='day'] [style^="color: rgb(156, 163, 175)"],

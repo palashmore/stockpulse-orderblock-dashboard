@@ -59,7 +59,10 @@ The **IPOs** tab lists mainboard issues only (SME, debt and withdrawal windows a
 
 * Opening, closing and listing dates are as NSE publishes them. Allotment, refund/credit and a listing date not yet announced are marked **exp.**: they are worked out from SEBI's T+3 timeline on the exchange trading calendar and can change.
 * The feed is an unofficial website source, so it is labelled `DELAYED` (or `STALE` when a cached copy is shown after a failure) and never presented as live. If NSE cannot be reached nothing is shown instead of a guess.
-* Recently listed issues show the latest price against the issue price (not the listing-day gain). Grey-market premium is not shown. Information only; not a recommendation to apply.
+* Recently listed issues show the latest price against the issue price, and the listing-day result as reported by InvestorGain.
+* **Grey-market premium (GMP)**, the announced allotment and listing dates, and mainboard issues NSE does not list yet come from [InvestorGain](https://www.investorgain.com/)'s public GMP report page (read at most every 15 minutes; its robots.txt allows it). GMP is an unofficial dealer quote: it can be wrong or manipulated and does not guarantee a listing gain. If the page cannot be read, no premium is shown rather than a guess.
+* **Analysis** on each issue is a rule-based checklist (grey-market premium, subscription, anchor demand, ticket size, issue size, and the listing result for listed issues). It always lists "the business" (financials, valuation, use of proceeds) as not assessed and links the offer document. It is not a recommendation to apply.
+* **Allotment status** appears for closed and recently listed issues with the registrar's name (from NSE) and links to the registrar's own check page. Your PAN or application number is typed on the registrar's site, never here.
 
 ### Portfolio review, allocation and correlation
 With the Breeze sign-in, the **Portfolio** screen has four tabs: Holdings, **Review: buy, hold, sell**, Allocation, and Correlation & risk.

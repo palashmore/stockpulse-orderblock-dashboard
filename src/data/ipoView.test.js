@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   IPO_VIEWS, inView, countByView, yearsOf, filterIpos, countdown, stepState, formatDay, againstIssuePrice,
-  recentlyListed, nseIssueUrl, loadTracked, saveTracked, toggleTracked, TRACKED_KEY, MAX_TRACKED, daysBetween,
+  recentlyListed, nseIssueUrl, investorGainUrl, loadTracked, saveTracked, toggleTracked, TRACKED_KEY, MAX_TRACKED, daysBetween,
 } from './ipoView';
 
 const TODAY = '2026-10-13';
@@ -141,5 +141,40 @@ describe('tracked issues storage', () => {
     expect(toggleTracked(added, 'B-2026-10-13').size).toBe(1);
     const full = new Set(Array.from({ length: MAX_TRACKED }, (_, i) => `S${i}-2026-10-13`));
     expect(toggleTracked(full, 'NEW-2026-10-13').size).toBe(MAX_TRACKED);
+  });
+});
+
+describe('announced issues without dates', () => {
+  const announced = { id: 'IG2306-undated', symbol: null, name: 'Jio Platforms', stage: 'ANNOUNCED', openDate: null, closeDate: null, listingDate: null, timeline: [], gmp: { path: '/gmp/jio-platforms-ipo/2306/' } };
+  const soon = mk('SOON', 'UPCOMING', '2026-10-14');
+  const all = [announced, soon, mk('DONE', 'LISTED', '2026-09-25', { listingDate: '2026-10-05' })];
+
+  it('appear under Upcoming, after the issues that have a date', () => {
+    expect(filterIpos(all, { view: 'upcoming' }).map((i) => i.name)).toEqual(['SOON Limited', 'Jio Platforms']);
+    expect(countByView(all).upcoming).toBe(2);
+  });
+  it('can be searched by name, filtered by year and left out of the year list', () => {
+    expect(filterIpos(all, { view: 'all', query: 'jio' }).map((i) => i.id)).toEqual(['IG2306-undated']);
+    expect(filterIpos(all, { view: 'all', year: '2026' }).map((i) => i.symbol)).toEqual(['SOON', 'DONE']);
+    expect(yearsOf(all)).toEqual(['2026']);
+  });
+  it('say the dates are not set, and have no NSE page or price lookup', () => {
+    expect(countdown(announced, TODAY)).toMatch(/not set yet/);
+    expect(nseIssueUrl(announced)).toBeNull();
+    expect(recentlyListed([announced], TODAY)).toEqual([]);
+  });
+  it('can be tracked', () => {
+    const storage = { v: null, getItem() { return this.v; }, setItem(_k, v) { this.v = v; } };
+    saveTracked(new Set(['IG2306-undated']), storage);
+    expect([...loadTracked(storage)]).toEqual(['IG2306-undated']);
+  });
+});
+
+describe('investorGainUrl', () => {
+  it('builds the link from the validated page path only', () => {
+    expect(investorGainUrl({ gmp: { path: '/gmp/tonbo-imaging-india-ipo/2369/' } })).toBe('https://www.investorgain.com/gmp/tonbo-imaging-india-ipo/2369/');
+    for (const bad of ['https://evil.example.com/x', '//evil.example.com', '/gmp/../admin/1/', 'javascript:alert(1)', '']) expect(investorGainUrl({ gmp: { path: bad } })).toBeNull();
+    expect(investorGainUrl({ gmp: null })).toBeNull();
+    expect(investorGainUrl({})).toBeNull();
   });
 });

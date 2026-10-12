@@ -27,6 +27,23 @@ describe('cache', () => {
     expect(cache.getStale('k', 5000)).toBeNull();
     expect(cache.size()).toBe(0);
   });
+
+  it('lets a partial entry ask to be refreshed sooner than the normal lifetime, but never later', () => {
+    let t = 0;
+    const cache = createCache(() => t);
+    cache.set('partial', { value: 1, freshForMs: 20 });
+    cache.set('complete', { value: 2 });
+    cache.set('longer', { value: 3, freshForMs: 5000 });
+    t = 19;
+    expect(cache.getFresh('partial', 1000)).toEqual({ value: 1, freshForMs: 20 });
+    t = 20;
+    expect(cache.getFresh('partial', 1000)).toBeNull();
+    expect(cache.getFresh('complete', 1000)).toEqual({ value: 2 });
+    expect(cache.getFresh('longer', 1000)).toEqual({ value: 3, freshForMs: 5000 }); // capped by the policy's own lifetime
+    t = 1000;
+    expect(cache.getFresh('longer', 1000)).toBeNull();
+    expect(cache.getFresh('missing', 1000)).toBeNull();
+  });
 });
 
 describe('data status', () => {

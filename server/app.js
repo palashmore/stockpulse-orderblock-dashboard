@@ -23,7 +23,8 @@ import { INDEX_DEFS, INDEX_BASE, indexDef, parseIndexCsv, MAX_SYMBOLS_PER_REQUES
 import { BREEZE_STOCK_CODES } from './breezeCodes.js';
 import { createStreamHub, quoteKey } from './breezeStream.js';
 import { createAlertEngine, createMemoryAlertStore } from './alertEngine.js';
-import { buildIpos } from './ipo.js';
+import { buildIpos, needsDetail } from './ipo.js';
+import { parseGmpPage } from './ipoGmp.js';
 import { parseNseHolidays, getMarketState, markPartialCandles } from './marketCalendar.js';
 import { createRateLimiter, createConcurrencyLimiter } from './limits.js';
 import {
@@ -57,6 +58,9 @@ const POLICY = {
   quotesBatch: { ttl: 45 * 1000, maxStale: 15 * MINUTE },
   historyIntraday: { ttl: 60 * 1000, maxStale: 60 * MINUTE },
   ipos: { ttl: 10 * MINUTE, maxStale: 24 * 60 * MINUTE },
+  ipoGmp: { ttl: 15 * MINUTE, maxStale: 6 * 60 * MINUTE },
+  ipoDetailOpen: { ttl: 5 * MINUTE, maxStale: 6 * 60 * MINUTE }, // open or forthcoming: subscription changes by the minute
+  ipoDetailDone: { ttl: 6 * 60 * MINUTE, maxStale: 48 * 60 * MINUTE },
 };
 
 const RANGE_DAYS = { '1d': 1, '5d': 5, '1mo': 31, '3mo': 93, '6mo': 186, '1y': 366, '2y': 731, '5y': 1827 };
@@ -115,6 +119,7 @@ export function createApp({
   alertStore = createMemoryAlertStore(), // server/index.js passes a file-backed store
   alertNotifier = null,
   alertIntervalMs = 60_000, // how often the server checks alerts once alerts.start() is called
+  ipoDetailWaitMs = Number(process.env.IPO_DETAIL_WAIT_MS) || 12_000, // how long the IPO list waits for NSE's per-issue pages
 } = {}) {
   const app = express();
   // At most `upstreamConcurrency` provider requests in flight; the rest queue.
@@ -1192,6 +1197,30 @@ export function createApp({
     return response.json();
   }
 
+  // Grey-market premium and announced dates from InvestorGain's public report page. Optional: if it cannot be read the
+  // IPO list is still served from NSE, with the grey-market column marked unavailable (never guessed).
+  async function loadGmp(todayKey) {
+    try {
+      const { entry, staleAgeMs } = await resolve('IPO GMP', {
+        key: 'ipo_gmp',
+        policy: POLICY.ipoGmp,
+        load: async () => {
+          const response = await fetchFn('https://www.investorgain.com/report/ipo-gmp-live/331/', {
+            headers: { ...YAHOO_HEADERS, Accept: 'text/html,application/xhtml+xml' },
+            signal: AbortSignal.timeout(20000),
+          });
+          if (!response.ok) throw new Error(`InvestorGain HTTP ${response.status}`);
+          const rows = parseGmpPage(await response.text(), todayKey);
+          if (rows.length === 0) throw new Error('The InvestorGain page had no readable IPO rows');
+          return { body: { rows }, status: DATA_STATUS.DELAYED, provider: 'InvestorGain (unofficial)', fetchedAt: new Date(now()).toISOString(), asOf: null };
+        },
+      });
+      return { rows: entry.body.rows, info: { status: staleAgeMs === null ? 'OK' : 'STALE', provider: entry.provider, fetchedAt: entry.fetchedAt, error: null } };
+    } catch (error) {
+      return { rows: [], info: { status: 'UNAVAILABLE', provider: 'InvestorGain (unofficial)', fetchedAt: null, error: String(error.message).slice(0, 120) } };
+    }
+  }
+
   async function loadIpos() {
     const upcoming = await nseJson('all-upcoming-issues?category=ipo');
     const [past, current] = await Promise.all([
@@ -1201,23 +1230,44 @@ export function createApp({
     if (!Array.isArray(upcoming) || !Array.isArray(past)) throw new Error('NSE IPO feed had an unexpected shape');
     const nowMs = now();
     const context = { todayKey: istDateKey(nowMs), holidays };
-    const feeds = { upcoming, current: Array.isArray(current) ? current : [], past, details: {} };
+    const gmp = await loadGmp(context.todayKey);
+    const feeds = { upcoming, current: Array.isArray(current) ? current : [], past, details: {}, gmpRows: gmp.rows };
 
-    const live = buildIpos(feeds, context).filter((ipo) => ipo.stage === 'UPCOMING' || ipo.stage === 'OPEN');
-    await Promise.all(live.map(async (ipo) => {
+    // Bid lot, category-wise subscription and registrar come from each issue's detail page (cached by how fast it changes).
+    // NSE can be slow here, so the list waits only so long: details still loading continue in the background, the list is
+    // marked partial (detailsPending) and is re-checked after 20 seconds instead of being cached for the full 10 minutes.
+    const wanted = buildIpos(feeds, context).filter((ipo) => needsDetail(ipo, context.todayKey));
+    const settled = new Set();
+    const work = wanted.map(async (ipo) => {
+      const live = ipo.stage === 'UPCOMING' || ipo.stage === 'OPEN';
       try {
-        feeds.details[ipo.symbol] = await nseJson(`ipo-detail?symbol=${encodeURIComponent(ipo.symbol)}&series=EQ`, `https://www.nseindia.com/market-data/issue-information?symbol=${encodeURIComponent(ipo.symbol)}&series=EQ&type=Active`);
+        const { entry } = await resolve('IPO detail', {
+          key: `ipo_detail_${ipo.symbol}`,
+          policy: live ? POLICY.ipoDetailOpen : POLICY.ipoDetailDone,
+          load: async () => ({
+            body: await nseJson(`ipo-detail?symbol=${encodeURIComponent(ipo.symbol)}&series=EQ`, `https://www.nseindia.com/market-data/issue-information?symbol=${encodeURIComponent(ipo.symbol)}&series=EQ&type=Active`),
+            status: DATA_STATUS.DELAYED, provider: 'NSE India website', fetchedAt: new Date(now()).toISOString(), asOf: null,
+          }),
+        });
+        feeds.details[ipo.symbol] = entry.body;
       } catch (error) {
         recordError('ipo-detail', `${ipo.symbol}: ${error.message}`);
+      } finally {
+        settled.add(ipo.symbol);
       }
-    }));
+    });
+    let deadline;
+    await Promise.race([Promise.all(work), new Promise((resolveTimer) => { deadline = setTimeout(resolveTimer, ipoDetailWaitMs); })]);
+    clearTimeout(deadline);
+    const pending = wanted.filter((ipo) => !settled.has(ipo.symbol)).length;
 
     return {
-      body: { ipos: buildIpos(feeds, context), todayKey: context.todayKey, calendar: holidays ? 'nse' : 'weekends-only' },
+      body: { ipos: buildIpos(feeds, context), todayKey: context.todayKey, calendar: holidays ? 'nse' : 'weekends-only', gmp: gmp.info, detailsPending: pending },
       status: DATA_STATUS.DELAYED, // unofficial website feed: never better than DELAYED
       provider: 'NSE India website',
       fetchedAt: new Date(nowMs).toISOString(),
       asOf: null,
+      ...(pending > 0 ? { freshForMs: 20_000 } : {}),
     };
   }
 

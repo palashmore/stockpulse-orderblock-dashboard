@@ -16,11 +16,13 @@ export function createCache(now = Date.now) {
       }
     },
 
-    /** Entry younger than `ttlMs`, else null. */
+    /** Entry younger than `ttlMs` (or than the entry's own shorter `freshForMs`, for a partial result), else null. */
     getFresh(key, ttlMs) {
       const hit = store.get(key);
-      if (hit && now() - hit.storedAt < ttlMs) return hit.entry;
-      return null;
+      if (!hit) return null;
+      const own = hit.entry?.freshForMs;
+      const ttl = Number.isFinite(own) ? Math.min(ttlMs, own) : ttlMs;
+      return now() - hit.storedAt < ttl ? hit.entry : null;
     },
 
     /** Entry younger than `maxStaleMs` with its age, else null. Used only after a provider failure. */

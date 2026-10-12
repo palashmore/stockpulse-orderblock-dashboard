@@ -1,4 +1,6 @@
 import { nextTradingDay } from './marketCalendar.js';
+import { findGmpRow, gmpSummary } from './ipoGmp.js';
+import { analyseIpo, allotmentLinks } from './ipoAnalysis.js';
 
 /**
  * Mainboard IPO tracking from NSE's public IPO feeds (unofficial website endpoints):
@@ -61,13 +63,36 @@ export const parseIssueType = (detail) => {
   return text ? text.slice(0, 40) : null;
 };
 
-/** Category-wise subscription (times) from an ipo-detail response: [{ category, times }]. */
+const CATEGORY_NAMES = [
+  [/total/i, 'Total'],
+  [/qualified|qib/i, 'QIB'],
+  [/non[\s-]*institutional|nii|nib/i, 'NII'],
+  [/retail|rii/i, 'Retail'],
+  [/employee/i, 'Employee'],
+];
+const shortCategory = (name) => CATEGORY_NAMES.find(([re]) => re.test(name))?.[1] ?? String(name).trim().slice(0, 24);
+
+/** Category-wise subscription (times) from an ipo-detail response: [{ category, times }]. Sub-rows without a figure are dropped. */
 export function parseSubscription(detail) {
   const rows = detail?.activeCat?.dataList ?? [];
+  const seen = new Set();
   return rows
-    .filter((r) => r && r.category && r.category !== 'Category')
-    .map((r) => ({ category: String(r.category), times: num(r.noOfTotalMeant) }))
-    .filter((r) => r.times !== null);
+    // top-level categories only: numbered 1, 2, 3 (sub-rows are 1(a), 2(b)...) plus the unnumbered Total row
+    .filter((r) => r && r.category && r.category !== 'Category' && (r.srNo === null || r.srNo === undefined || /^\d+$/.test(String(r.srNo).trim())))
+    .map((r) => ({ category: shortCategory(String(r.category)), times: num(r.noOfTotalMeant) }))
+    .filter((r) => r.times !== null && !seen.has(r.category) && seen.add(r.category));
+}
+
+/** The registrar named in an ipo-detail response, or null. */
+export function parseRegistrar(detail) {
+  const name = String(detailValue(detail, 'Name of the Registrar') ?? '').replace(/^"|"$/g, '').trim();
+  return name ? name.slice(0, 80) : null;
+}
+
+/** Link to the red herring prospectus, only when it is on NSE's own archive. */
+export function parseRhpUrl(detail) {
+  const url = String(detailValue(detail, 'Red Herring Prospectus') ?? '').trim();
+  return /^https:\/\/nsearchives\.nseindia\.com\/[\w./%-]+$/.test(url) ? url : null;
 }
 
 const isWithdrawalEntry = (name) => /withdrawal/i.test(name);
@@ -107,6 +132,7 @@ function fromPast(row) {
 
 /** Lifecycle stage from the dates published so far and today's IST date. */
 export function stageOf({ openDate, closeDate, listingDate }, todayKey) {
+  if (!openDate || !closeDate) return 'ANNOUNCED'; // listed by InvestorGain before any dates are fixed
   if (listingDate && listingDate <= todayKey) return 'LISTED';
   if (todayKey < openDate) return 'UPCOMING';
   if (todayKey <= closeDate) return 'OPEN';
@@ -116,12 +142,17 @@ export function stageOf({ openDate, closeDate, listingDate }, todayKey) {
 
 const addDaysKey = (key, n) => new Date(Date.parse(`${key}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 
-/** The steps shown for an issue: actual dates NSE publishes, then expected ones from the T+3 rule. */
-export function buildTimeline(ipo, stage, holidays) {
+/**
+ * The steps shown for an issue: dates the exchange or InvestorGain publish ("actual"), then expected ones from the T+3 rule.
+ * @param extra { boaDate, listingDate } announced dates from InvestorGain (used when NSE has not published its own)
+ */
+export function buildTimeline(ipo, stage, holidays, extra = {}) {
+  if (stage === 'ANNOUNCED') return [];
   const steps = [
     { key: 'open', label: 'Opens', date: ipo.openDate, kind: 'actual' },
     { key: 'close', label: 'Closes', date: ipo.closeDate, kind: 'actual' },
   ];
+  const listingDate = ipo.listingDate ?? extra.listingDate ?? null;
   if (stage === 'LISTED') {
     steps.push({ key: 'listing', label: 'Listed', date: ipo.listingDate, kind: 'actual' });
   } else if (stage !== 'ENDED') {
@@ -135,22 +166,33 @@ export function buildTimeline(ipo, stage, holidays) {
       t3 = nextTradingDay(t2, holidays);
     }
     steps.push(
-      { key: 'allotment', label: 'Allotment', date: t1, kind: 'expected' },
+      extra.boaDate ? { key: 'allotment', label: 'Allotment', date: extra.boaDate, kind: 'actual' } : { key: 'allotment', label: 'Allotment', date: t1, kind: 'expected' },
       { key: 'refund', label: 'Refund / credit', date: t2, kind: 'expected' },
-      ipo.listingDate
-        ? { key: 'listing', label: 'Listing', date: ipo.listingDate, kind: 'actual' }
+      listingDate
+        ? { key: 'listing', label: 'Listing', date: listingDate, kind: 'actual' }
         : { key: 'listing', label: 'Listing', date: t3, kind: 'expected' },
     );
   }
   return steps;
 }
 
+const RECENT_LISTED_DAYS = 10; // after this the registrar, refunds and credit are long done
+const daysSince = (key, todayKey) => Math.round((Date.parse(`${todayKey}T00:00:00Z`) - Date.parse(`${key}T00:00:00Z`)) / 86400000);
+
+/** Issues that need an ipo-detail lookup (bid lot, subscription, registrar): everything not long listed. */
+export function needsDetail(ipo, todayKey) {
+  if (!ipo.symbol) return false;
+  if (ipo.stage === 'UPCOMING' || ipo.stage === 'OPEN' || ipo.stage === 'CLOSED') return true;
+  return ipo.stage === 'LISTED' && ipo.listingDate && daysSince(ipo.listingDate, todayKey) <= RECENT_LISTED_DAYS;
+}
+
 /**
  * Merge the feeds into one mainboard IPO list, newest first.
- * @param feeds   { upcoming, current, past, details } raw NSE arrays; details maps SYMBOL -> ipo-detail JSON
+ * @param feeds   { upcoming, current, past, details, gmpRows } raw NSE arrays; details maps SYMBOL -> ipo-detail JSON;
+ *                gmpRows are parsed InvestorGain rows (optional)
  * @param context { todayKey: 'YYYY-MM-DD' (IST), holidays: Map|null }
  */
-export function buildIpos({ upcoming = [], current = [], past = [], details = {} }, { todayKey, holidays = null }) {
+export function buildIpos({ upcoming = [], current = [], past = [], details = {}, gmpRows = [] }, { todayKey, holidays = null }) {
   const bseSymbols = new Set((current || []).filter((r) => r?.isBse === '1').map((r) => String(r.symbol).toUpperCase()));
   const byId = new Map();
   const put = (ipo) => {
@@ -163,32 +205,75 @@ export function buildIpos({ upcoming = [], current = [], past = [], details = {}
   for (const row of [...upcoming, ...current]) put(fromUpcoming(row, bseSymbols));
   for (const row of past) put(fromPast(row));
 
-  return [...byId.entries()]
-    .map(([id, ipo]) => {
-      const stage = stageOf(ipo, todayKey);
-      const detail = details[ipo.symbol];
-      const lot = detail ? parseLot(detail) : null;
-      const high = ipo.band?.high ?? null;
-      return {
-        id,
-        symbol: ipo.symbol,
-        name: ipo.name,
-        exchange: ipo.exchange,
-        stage,
-        openDate: ipo.openDate,
-        closeDate: ipo.closeDate,
-        listingDate: ipo.listingDate,
-        priceLow: ipo.band?.low ?? null,
-        priceHigh: high,
-        issuePrice: ipo.issuePrice,
-        lotSize: lot,
-        minInvestment: lot && high ? Math.round(lot * high) : null,
-        issueType: detail ? parseIssueType(detail) : null,
-        issueSizeShares: ipo.sizeShares,
-        issueSizeCr: ipo.sizeShares && high ? Math.round((ipo.sizeShares * high) / 1e5) / 100 : null, // at the upper price band
-        subscription: stage === 'OPEN' && detail ? parseSubscription(detail) : [],
-        timeline: buildTimeline(ipo, stage, holidays),
-      };
-    })
-    .sort((a, b) => (a.openDate < b.openDate ? 1 : a.openDate > b.openDate ? -1 : a.symbol.localeCompare(b.symbol)));
+  const mainboardGmp = (gmpRows || []).filter((r) => r.kind === 'MAINBOARD');
+  const used = new Set();
+  const build = (id, ipo, row, detail) => {
+    const stage = stageOf(ipo, todayKey);
+    const lot = (detail ? parseLot(detail) : null) ?? row?.lot ?? null;
+    const high = ipo.band?.high ?? row?.price ?? null;
+    const listingDate = ipo.listingDate ?? (stage === 'LISTED' ? null : row?.listingDate ?? null);
+    const subscription = detail ? parseSubscription(detail) : [];
+    const registrar = detail ? parseRegistrar(detail) : null;
+    const base = {
+      id,
+      symbol: ipo.symbol,
+      name: ipo.name,
+      exchange: ipo.exchange,
+      source: ipo.symbol ? 'NSE' : 'InvestorGain',
+      stage,
+      openDate: ipo.openDate,
+      closeDate: ipo.closeDate,
+      listingDate: ipo.listingDate ?? listingDate,
+      priceLow: ipo.band?.low ?? null,
+      priceHigh: high,
+      issuePrice: ipo.issuePrice,
+      lotSize: lot,
+      minInvestment: lot && high ? Math.round(lot * high) : null,
+      issueType: detail ? parseIssueType(detail) : null,
+      issueSizeShares: ipo.sizeShares,
+      issueSizeCr: ipo.sizeShares && high ? Math.round((ipo.sizeShares * high) / 1e5) / 100 : row?.sizeCr ?? null, // NSE's share count at the upper band, else InvestorGain's figure
+      subscription: stage === 'UPCOMING' || stage === 'ANNOUNCED' ? [] : subscription,
+      totalSubscription: row?.subscription ?? null,
+      anchor: Boolean(row?.anchor),
+      gmp: stage === 'LISTED' || stage === 'ENDED' ? null : gmpSummary(row, high),
+      listingGainPct: stage === 'LISTED' ? row?.listingGainPct ?? null : null,
+      listingPrice: stage === 'LISTED' ? row?.listingPrice ?? null : null,
+      rhpUrl: detail ? parseRhpUrl(detail) : null,
+      timeline: buildTimeline(ipo, stage, holidays, { boaDate: row?.boaDate ?? null, listingDate }),
+    };
+    if (stage === 'CLOSED' || (stage === 'LISTED' && ipo.listingDate && daysSince(ipo.listingDate, todayKey) <= RECENT_LISTED_DAYS)) {
+      base.allotment = allotmentLinks(registrar, row?.path ?? null);
+    }
+    return { ...base, analysis: analyseIpo(base) };
+  };
+
+  const out = [...byId.entries()].map(([id, ipo]) => {
+    const row = findGmpRow(ipo, mainboardGmp);
+    if (row) used.add(row.id);
+    return build(id, ipo, row, details[ipo.symbol]);
+  });
+
+  // Announced mainboard issues InvestorGain already lists but NSE's feed does not carry yet (dates may still be unset)
+  for (const row of mainboardGmp) {
+    if (used.has(row.id)) continue;
+    const dated = row.openDate && row.closeDate && row.closeDate >= row.openDate;
+    if (dated ? row.openDate < HISTORY_FROM : !(row.upcoming && !row.openDate && !row.closeDate)) continue;
+    const ipo = {
+      symbol: null,
+      name: row.name,
+      openDate: dated ? row.openDate : null,
+      closeDate: dated ? row.closeDate : null,
+      band: row.price ? { low: row.price, high: row.price } : null,
+      issuePrice: null,
+      sizeShares: null,
+      listingDate: null,
+      exchange: 'NSE/BSE',
+    };
+    const stage = stageOf({ ...ipo, listingDate: row.listingDate }, todayKey);
+    if (stage === 'LISTED' || stage === 'ENDED') continue; // finished issues come from NSE's own list
+    out.push(build(`IG${row.id}-${dated ? row.openDate : 'undated'}`, ipo, row, null));
+  }
+
+  const key = (i) => i.openDate ?? '9999-12-31'; // undated announcements sort as the furthest away
+  return out.sort((a, b) => (key(a) < key(b) ? 1 : key(a) > key(b) ? -1 : String(a.symbol ?? a.name).localeCompare(String(b.symbol ?? b.name))));
 }

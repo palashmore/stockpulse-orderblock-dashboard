@@ -12,6 +12,7 @@ export const IPO_VIEWS = [
 export const STAGE_META = {
   OPEN: { label: 'OPEN', color: '#00e676' },
   UPCOMING: { label: 'UPCOMING', color: '#00b0ff' },
+  ANNOUNCED: { label: 'DATES NOT SET', color: '#00b0ff' },
   CLOSED: { label: 'CLOSED', color: '#ffd600' },
   LISTED: { label: 'LISTED', color: '#94a3b8' },
   ENDED: { label: 'COMPLETED', color: '#64748b' },
@@ -19,7 +20,7 @@ export const STAGE_META = {
 
 const VIEW_STAGES = {
   open: ['OPEN'],
-  upcoming: ['UPCOMING'],
+  upcoming: ['UPCOMING', 'ANNOUNCED'],
   closed: ['CLOSED'],
   listed: ['LISTED', 'ENDED'],
 };
@@ -39,7 +40,7 @@ export function countByView(ipos, tracked = new Set()) {
 
 /** Years (newest first) in which listed or completed issues opened, for the year filter. */
 export function yearsOf(ipos) {
-  return [...new Set(ipos.map((i) => i.openDate.slice(0, 4)))].sort().reverse();
+  return [...new Set(ipos.filter((i) => i.openDate).map((i) => i.openDate.slice(0, 4)))].sort().reverse();
 }
 
 /**
@@ -49,16 +50,19 @@ export function yearsOf(ipos) {
 export function filterIpos(ipos, { view = 'open', query = '', year = '', tracked = new Set() } = {}) {
   const q = query.trim().toLowerCase();
   const out = ipos.filter((i) => inView(i, view, tracked)
-    && (!year || i.openDate.startsWith(year))
-    && (!q || i.name.toLowerCase().includes(q) || i.symbol.toLowerCase().includes(q)));
+    && (!year || (i.openDate ?? '').startsWith(year))
+    && (!q || i.name.toLowerCase().includes(q) || (i.symbol ?? '').toLowerCase().includes(q)));
   const soonFirst = view === 'open' || view === 'upcoming';
-  return out.sort((a, b) => (soonFirst ? a.openDate.localeCompare(b.openDate) : b.openDate.localeCompare(a.openDate)));
+  const when = (i) => i.openDate ?? '9999-12-31'; // issues with no dates yet count as the furthest away
+  return out.sort((a, b) => (soonFirst ? when(a).localeCompare(when(b)) : when(b).localeCompare(when(a))));
 }
 
 /** One line saying where an issue stands today. */
 export function countdown(ipo, todayKey) {
   const plural = (n) => `${n} day${n === 1 ? '' : 's'}`;
   switch (ipo.stage) {
+    case 'ANNOUNCED':
+      return 'Announced; opening and closing dates are not set yet';
     case 'UPCOMING': {
       const n = daysBetween(todayKey, ipo.openDate);
       return n === 1 ? 'Opens tomorrow' : `Opens in ${plural(n)}`;
@@ -105,15 +109,20 @@ export function againstIssuePrice(ipo, price) {
 
 /** Listed issues recent enough to be worth a price lookup (listed within `days`). */
 export function recentlyListed(ipos, todayKey, days = 45) {
-  return ipos.filter((i) => i.stage === 'LISTED' && i.listingDate && daysBetween(i.listingDate, todayKey) <= days);
+  return ipos.filter((i) => i.symbol && i.stage === 'LISTED' && i.listingDate && daysBetween(i.listingDate, todayKey) <= days);
 }
 
-export const nseIssueUrl = (ipo) => `https://www.nseindia.com/market-data/issue-information?symbol=${encodeURIComponent(ipo.symbol)}&series=EQ&type=${ipo.stage === 'LISTED' || ipo.stage === 'ENDED' ? 'Past' : 'Active'}`;
+export const nseIssueUrl = (ipo) => (ipo.symbol
+  ? `https://www.nseindia.com/market-data/issue-information?symbol=${encodeURIComponent(ipo.symbol)}&series=EQ&type=${ipo.stage === 'LISTED' || ipo.stage === 'ENDED' ? 'Past' : 'Active'}`
+  : null);
+
+/** The issue's InvestorGain page (grey-market history, details), when the server matched one. The path is validated server-side. */
+export const investorGainUrl = (ipo) => (ipo.gmp?.path && /^\/gmp\/[a-z0-9-]+\/\d+\/?$/.test(ipo.gmp.path) ? `https://www.investorgain.com${ipo.gmp.path}` : null);
 
 // ---- tracked issues (saved in this browser)
 export const TRACKED_KEY = 'stockpulse.ipo.tracked.v1';
 export const MAX_TRACKED = 100;
-const ID = /^[A-Z0-9&.-]{1,20}-\d{4}-\d{2}-\d{2}$/;
+const ID = /^[A-Z0-9&.-]{1,20}-(\d{4}-\d{2}-\d{2}|undated)$/;
 
 export function loadTracked(storage) {
   try {
