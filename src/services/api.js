@@ -1,7 +1,8 @@
 const API_BASE = 'http://localhost:3001/api';
 
-// Helper to make API calls with timeout and error handling
-async function apiFetch(endpoint, options = {}) {
+// Helper to make API calls with timeout and error handling.
+// Resolves to { data, headers } on success, null on any failure.
+async function apiRequest(endpoint, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
 
@@ -14,12 +15,17 @@ async function apiFetch(endpoint, options = {}) {
     if (!response.ok) {
       throw new Error(`API Error: ${response.status}`);
     }
-    return await response.json();
+    return { data: await response.json(), headers: response.headers };
   } catch (error) {
     clearTimeout(timeout);
     console.warn(`API call failed for ${endpoint}:`, error.message);
     return null;
   }
+}
+
+async function apiFetch(endpoint, options) {
+  const result = await apiRequest(endpoint, options);
+  return result ? result.data : null;
 }
 
 // Check if backend is available
@@ -37,12 +43,12 @@ export async function fetchQuote(symbol) {
   return await apiFetch(`/quote/${encodeURIComponent(symbol)}`);
 }
 
-// Get historical candle data
+// Get historical candle data: { candles, dataStatus, asOf, provider, ... }
 export async function fetchHistory(symbol, range = '6mo', interval = '1d') {
   const data = await apiFetch(
     `/history/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`
   );
-  return data?.candles || null;
+  return data?.candles?.length ? data : null;
 }
 
 // Get options chain data
@@ -50,9 +56,17 @@ export async function fetchOptions(symbol) {
   return await apiFetch(`/options/${encodeURIComponent(symbol)}`);
 }
 
-// Get all Nifty 50 quotes
+// Get all Nifty 50 quotes: { quotes, dataStatus, asOf, staleAgeSec } (status comes from response headers)
 export async function fetchNifty50() {
-  return await apiFetch('/nifty50');
+  const result = await apiRequest('/nifty50');
+  if (!result || !Array.isArray(result.data)) return null;
+  const { headers } = result;
+  return {
+    quotes: result.data,
+    dataStatus: headers.get('x-data-status'),
+    asOf: headers.get('x-data-as-of'),
+    staleAgeSec: Number(headers.get('x-data-stale-age-sec')) || null,
+  };
 }
 
 // Search stocks

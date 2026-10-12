@@ -56,8 +56,7 @@ export default function MetricsBar({ metrics, stockInfo }) {
 
       {/* Metric Items */}
       <div className="flex items-center" style={{ borderRight: '1px solid rgba(30, 45, 61, 0.3)' }}>
-        <MetricItem label="RANK" value={`#${metrics.rank}`} />
-        <MetricItem label="VWAP" value={`₹${metrics.vwap}`} />
+        <MetricItem label="VWAP 20D" value={metrics.vwap === null ? '—' : `₹${metrics.vwap}`} />
       </div>
 
       <div className="flex items-center" style={{ borderRight: '1px solid rgba(30, 45, 61, 0.3)' }}>
@@ -79,7 +78,7 @@ export default function MetricsBar({ metrics, stockInfo }) {
       <div className="flex items-center">
         <MetricItem
           label="RSI"
-          value={metrics.rsi}
+          value={metrics.rsi ?? '—'}
           color={metrics.rsi > 70 ? '#ff1744' : metrics.rsi < 30 ? '#00e676' : '#ffd600'}
           highlight
         />
@@ -88,7 +87,7 @@ export default function MetricsBar({ metrics, stockInfo }) {
           <span className={`text-[10px] font-medium ${
             metrics.rsi > 70 ? 'text-red-400' : metrics.rsi < 30 ? 'text-green-400' : 'text-yellow-400'
           }`}>
-            {metrics.rsi > 70 ? 'OVERBOUGHT' : metrics.rsi < 30 ? 'OVERSOLD' : 'NEUTRAL'}
+            {metrics.rsi === null ? 'N/A' : metrics.rsi > 70 ? 'OVERBOUGHT' : metrics.rsi < 30 ? 'OVERSOLD' : 'NEUTRAL'}
           </span>
         </div>
       </div>
@@ -97,7 +96,7 @@ export default function MetricsBar({ metrics, stockInfo }) {
 }
 
 function formatVolume(vol) {
-  if (!vol) return '0';
+  if (vol === null || vol === undefined) return '—';
   if (vol >= 10000000) return `${(vol / 10000000).toFixed(1)}Cr`;
   if (vol >= 100000) return `${(vol / 100000).toFixed(1)}L`;
   if (vol >= 1000) return `${(vol / 1000).toFixed(1)}K`;

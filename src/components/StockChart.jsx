@@ -9,6 +9,8 @@ import {
   createSeriesMarkers,
 } from 'lightweight-charts';
 
+import { calculateVWAP } from '../data/marketAnalysis';
+
 export default function StockChart({ candleData, orderBlocks, stockSymbol }) {
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
@@ -85,7 +87,7 @@ export default function StockChart({ candleData, orderBlocks, stockSymbol }) {
       scaleMargins: { top: 0.85, bottom: 0 },
     });
     volumeSeries.setData(
-      candleData.map((d) => ({
+      candleData.filter((d) => Number.isFinite(d.volume)).map((d) => ({
         time: d.time,
         value: d.volume,
         color: d.close >= d.open ? 'rgba(0, 230, 118, 0.15)' : 'rgba(255, 23, 68, 0.15)',
@@ -120,16 +122,8 @@ export default function StockChart({ candleData, orderBlocks, stockSymbol }) {
     });
     sma50Series.setData(sma50Data);
 
-    // VWAP line (v5 API)
-    const vwapData = [];
-    let cumVolPrice = 0;
-    let cumVol = 0;
-    for (let i = 0; i < candleData.length; i++) {
-      const typicalPrice = (candleData[i].high + candleData[i].low + candleData[i].close) / 3;
-      cumVolPrice += typicalPrice * candleData[i].volume;
-      cumVol += candleData[i].volume;
-      vwapData.push({ time: candleData[i].time, value: cumVolPrice / (cumVol || 1) });
-    }
+    // VWAP line: rolling 20-candle VWAP (shared with the metrics bar)
+    const vwapData = calculateVWAP(candleData, 20);
     const vwapSeries = chart.addSeries(LineSeries, {
       color: 'rgba(255, 214, 0, 0.5)',
       lineWidth: 1,
@@ -199,7 +193,7 @@ export default function StockChart({ candleData, orderBlocks, stockSymbol }) {
           </button>
         ))}
         <div className="flex-1" />
-        <span className="text-xs text-gray-600">SMA 20 / 50 + VWAP</span>
+        <span className="text-xs text-gray-600">SMA 20 / 50 + VWAP 20D</span>
       </div>
       {/* Chart Canvas Container */}
       <div ref={chartContainerRef} className="flex-1 min-h-[250px] w-full" />

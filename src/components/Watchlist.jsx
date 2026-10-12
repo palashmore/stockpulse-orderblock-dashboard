@@ -1,19 +1,65 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { TrendingUp, TrendingDown, ArrowUpDown } from 'lucide-react';
 import { NIFTY_STOCKS, generateCandlestickData, getMarketMetrics } from '../data/stockData';
+import { fetchNifty50 } from '../services/api';
+import { STATUS_META } from '../data/dataStatus';
+import { UnavailableState } from './DataStatusBadge';
 
-export default function Watchlist({ onSelectStock, selectedStock }) {
+const REFRESH_MS = 60000;
+const SECTORS = Object.fromEntries(NIFTY_STOCKS.map((s) => [s.symbol, s.sector]));
+
+function quoteToMetrics(q) {
+  return {
+    price: q.price.toFixed(2),
+    changePct: (q.changePct ?? 0).toFixed(2),
+    isPositive: (q.change ?? 0) >= 0,
+    volume: q.volume ?? 0,
+  };
+}
+
+// Real Nifty 50 quotes from the backend, or generated data only when demo mode is explicitly on.
+function useWatchlistData(demoMode) {
+  const [state, setState] = useState({ stocks: [], status: null, failed: false, loaded: false });
+
+  const load = useCallback(async () => {
+    const result = await fetchNifty50();
+    setState((prev) => {
+      if (!result) return { ...prev, failed: true, loaded: true };
+      const stocks = result.quotes.map((q) => ({
+        symbol: q.symbol,
+        name: q.name,
+        sector: SECTORS[q.symbol] || '',
+        metrics: quoteToMetrics(q),
+      }));
+      return { stocks, status: result.dataStatus, failed: false, loaded: true };
+    });
+  }, []);
+
+  useEffect(() => {
+    if (demoMode) return;
+    load();
+    const interval = setInterval(load, REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [demoMode, load]);
+
+  const demoStocks = useMemo(() => {
+    if (!demoMode) return [];
+    return NIFTY_STOCKS.map((stock) => ({
+      ...stock,
+      metrics: getMarketMetrics(generateCandlestickData(stock.symbol, 30)),
+    }));
+  }, [demoMode]);
+
+  if (demoMode) return { stocks: demoStocks, status: 'SIMULATED', failed: false, loaded: true, retry: load };
+  return { ...state, retry: load };
+}
+
+export default function Watchlist({ onSelectStock, selectedStock, demoMode = false }) {
   const [sortBy, setSortBy] = useState('symbol');
   const [sortDir, setSortDir] = useState('asc');
   const [filter, setFilter] = useState('all');
 
-  const stocksWithMetrics = useMemo(() => {
-    return NIFTY_STOCKS.map((stock) => {
-      const candles = generateCandlestickData(stock.symbol, 30);
-      const metrics = getMarketMetrics(candles);
-      return { ...stock, metrics };
-    });
-  }, []);
+  const { stocks: stocksWithMetrics, status, failed, loaded, retry } = useWatchlistData(demoMode);
 
   const filtered = useMemo(() => {
     let list = [...stocksWithMetrics];
@@ -37,6 +83,16 @@ export default function Watchlist({ onSelectStock, selectedStock }) {
 
   const filters = ['all', 'gainers', 'losers'];
 
+  if (stocksWithMetrics.length === 0) {
+    return (
+      <div className="flex flex-col h-full" style={{ backgroundColor: '#0d1117' }}>
+        <UnavailableState status={failed ? 'UNAVAILABLE' : null} loading={!loaded} onRetry={retry} />
+      </div>
+    );
+  }
+
+  const statusMeta = failed ? STATUS_META.STALE : STATUS_META[status];
+
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: '#0d1117' }}>
       {/* Filters */}
@@ -52,6 +108,11 @@ export default function Watchlist({ onSelectStock, selectedStock }) {
             {f}
           </button>
         ))}
+        {statusMeta && (
+          <span className="ml-auto text-[10px]" style={{ color: statusMeta.color }} title={statusMeta.description}>
+            {statusMeta.label}
+          </span>
+        )}
       </div>
 
       {/* Header */}

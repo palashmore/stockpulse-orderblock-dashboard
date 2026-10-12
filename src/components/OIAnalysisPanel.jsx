@@ -152,7 +152,7 @@ export default function OIAnalysisPanel({ optionsData, priceChange }) {
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <Activity size={24} className="mx-auto text-gray-700 mb-2" />
-            <p className="text-xs text-gray-600">Options data loading...</p>
+            <p className="text-xs text-gray-600">Options data not available</p>
             <p className="text-[10px] text-gray-700 mt-1">F&O stocks only</p>
           </div>
         </div>
@@ -196,7 +196,7 @@ export default function OIAnalysisPanel({ optionsData, priceChange }) {
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">OI Analysis</h3>
         <span className="text-[9px] px-1.5 py-0.5 rounded text-gray-500"
           style={{ backgroundColor: 'rgba(30, 45, 61, 0.5)' }}>
-          {source || 'LIVE'}
+          {[source, optionsData.dataStatus].filter(Boolean).join(' · ')}
         </span>
       </div>
 

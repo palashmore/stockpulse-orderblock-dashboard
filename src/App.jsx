@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import SearchBar from './components/SearchBar';
 import StockChart from './components/StockChart';
@@ -7,13 +7,13 @@ import SignalCards from './components/SignalCards';
 import MetricsBar from './components/MetricsBar';
 import Watchlist from './components/Watchlist';
 import OIAnalysisPanel from './components/OIAnalysisPanel';
+import { DataStatusBadge, SimulationBanner, UnavailableState } from './components/DataStatusBadge';
 import {
   NIFTY_STOCKS,
   generateCandlestickData,
-  generateOrderBlocks,
   generateSignals,
-  getMarketMetrics,
 } from './data/stockData';
+import { resolveHeadlineStatus, isDemoModeRequested } from './data/dataStatus';
 import {
   detectOrderBlocks,
   generateSignalsFromOptions,
@@ -31,89 +31,112 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('orderblock');
   const [selectedStock, setSelectedStock] = useState(NIFTY_STOCKS[0]);
 
-  // Real data state
-  const [isLive, setIsLive] = useState(false);
-  const [realCandles, setRealCandles] = useState(null);
+  // Simulated data is only used when explicitly requested with ?demo=1
+  const [demoMode] = useState(() => isDemoModeRequested(window.location.search));
+
+  // Real data state. backendUp is null until the first health check completes.
+  const [backendUp, setBackendUp] = useState(null);
+  const [history, setHistory] = useState(null);
   const [realQuote, setRealQuote] = useState(null);
   const [optionsData, setOptionsData] = useState(null);
   const [marketStatus, setMarketStatus] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [attempted, setAttempted] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const requestedSymbol = useRef(selectedStock.symbol);
 
-  // Check backend availability on mount
-  useEffect(() => {
-    checkBackendHealth().then((healthy) => {
-      setIsLive(healthy);
-      if (healthy) {
-        console.log('✅ Backend connected — using LIVE data');
-        fetchMarketStatus().then(setMarketStatus);
-      } else {
-        console.log('⚠️ Backend not available — using DEMO data');
-      }
+  const checkBackend = useCallback(() => {
+    return checkBackendHealth().then((healthy) => {
+      setBackendUp(healthy);
+      if (healthy) fetchMarketStatus().then(setMarketStatus);
+      return healthy;
     });
   }, []);
 
+  // Check backend availability on mount
+  useEffect(() => {
+    if (!demoMode) checkBackend();
+  }, [demoMode, checkBackend]);
+
   // Fetch real data when stock changes or backend becomes available
   const loadRealData = useCallback(async (symbol) => {
-    if (!isLive) return;
+    if (demoMode || !backendUp) return;
+    requestedSymbol.current = symbol;
     setLoading(true);
-    try {
-      const [historyData, quoteData, optData] = await Promise.allSettled([
-        fetchHistory(symbol, '6mo', '1d'),
-        fetchQuote(symbol),
-        fetchOptions(symbol),
-      ]);
+    const [historyData, quoteData, optData] = await Promise.all([
+      fetchHistory(symbol, '6mo', '1d'),
+      fetchQuote(symbol),
+      fetchOptions(symbol),
+    ]);
+    // Ignore responses for a stock the user has already navigated away from
+    if (requestedSymbol.current !== symbol) return;
 
-      if (historyData.status === 'fulfilled' && historyData.value) {
-        setRealCandles(historyData.value);
-      }
-      if (quoteData.status === 'fulfilled' && quoteData.value) {
-        setRealQuote(quoteData.value);
-      }
-      if (optData.status === 'fulfilled' && optData.value) {
-        setOptionsData(optData.value);
-      }
-      setLastUpdate(new Date());
-    } catch (error) {
-      console.error('Error loading real data:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [isLive]);
+    if (historyData) setHistory(historyData);
+    if (quoteData) setRealQuote(quoteData);
+    if (optData) setOptionsData(optData);
+    setRefreshFailed(!historyData && !quoteData);
+    setLastUpdate(new Date());
+    setAttempted(true);
+    setLoading(false);
+  }, [demoMode, backendUp]);
 
   useEffect(() => {
     loadRealData(selectedStock.symbol);
   }, [selectedStock.symbol, loadRealData]);
 
-  // Auto-refresh every 60 seconds when live
+  // Refresh every 60 seconds; re-check the backend if it was unreachable
   useEffect(() => {
-    if (!isLive) return;
+    if (demoMode) return;
     const interval = setInterval(() => {
-      loadRealData(selectedStock.symbol);
+      if (backendUp) loadRealData(selectedStock.symbol);
+      else checkBackend();
     }, 60000);
     return () => clearInterval(interval);
-  }, [isLive, selectedStock.symbol, loadRealData]);
+  }, [demoMode, backendUp, selectedStock.symbol, loadRealData, checkBackend]);
 
-  // Use real data if available, fall back to demo
+  // Real candles, or generated ones only in explicit demo mode. Never mixed.
   const candleData = useMemo(() => {
-    if (realCandles && realCandles.length > 0) return realCandles;
-    return generateCandlestickData(selectedStock.symbol);
-  }, [realCandles, selectedStock.symbol]);
+    if (demoMode) return generateCandlestickData(selectedStock.symbol);
+    return history?.candles ?? [];
+  }, [demoMode, history, selectedStock.symbol]);
 
   const orderBlocks = useMemo(() => {
     return detectOrderBlocks(candleData);
   }, [candleData]);
 
   const signals = useMemo(() => {
-    if (optionsData) {
-      return generateSignalsFromOptions(optionsData, candleData);
-    }
-    return generateSignals(candleData);
-  }, [optionsData, candleData]);
+    if (demoMode) return generateSignals(candleData);
+    return optionsData ? generateSignalsFromOptions(optionsData, candleData) : [];
+  }, [demoMode, optionsData, candleData]);
 
   const metrics = useMemo(() => {
-    return computeMetrics(candleData, realQuote);
-  }, [candleData, realQuote]);
+    return computeMetrics(candleData, demoMode ? null : realQuote);
+  }, [demoMode, candleData, realQuote]);
+
+  const headlineStatus = resolveHeadlineStatus({
+    demoMode,
+    backendUp,
+    attempted,
+    hasData: candleData.length > 0,
+    refreshFailed,
+    quote: realQuote,
+    history,
+  });
+
+  const retry = () => {
+    if (backendUp) loadRealData(selectedStock.symbol);
+    else checkBackend();
+  };
+
+  const noData = candleData.length === 0;
+  const renderUnavailable = () => (
+    <UnavailableState
+      status={headlineStatus}
+      loading={headlineStatus === null}
+      onRetry={retry}
+    />
+  );
 
   const priceChange = useMemo(() => {
     if (candleData.length >= 2) {
@@ -124,14 +147,17 @@ export default function App() {
 
   const handleSelectStock = (stock) => {
     // Reset real data when switching
-    setRealCandles(null);
+    requestedSymbol.current = stock.symbol;
+    setHistory(null);
     setRealQuote(null);
     setOptionsData(null);
+    setRefreshFailed(false);
+    setAttempted(false);
     setSelectedStock(stock);
   };
 
   // Main dashboard view (orderblock tab)
-  const renderDashboard = () => (
+  const renderDashboard = () => noData ? renderUnavailable() : (
     <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Left: Chart + Order Blocks */}
       <div className="flex flex-col flex-1 min-w-0">
@@ -184,12 +210,12 @@ export default function App() {
   // Watchlist view
   const renderWatchlist = () => (
     <div className="flex-1 min-h-0 overflow-hidden">
-      <Watchlist onSelectStock={handleSelectStock} selectedStock={selectedStock} isLive={isLive} />
+      <Watchlist onSelectStock={handleSelectStock} selectedStock={selectedStock} demoMode={demoMode} />
     </div>
   );
 
   // Screener view
-  const renderScreener = () => (
+  const renderScreener = () => noData ? renderUnavailable() : (
     <div className="flex flex-1 min-h-0 overflow-hidden">
       <div className="flex-1 flex flex-col">
         <div className="flex-1 min-h-0">
@@ -208,7 +234,7 @@ export default function App() {
           backgroundColor: '#0d1117',
         }}
       >
-        <Watchlist onSelectStock={handleSelectStock} selectedStock={selectedStock} isLive={isLive} />
+        <Watchlist onSelectStock={handleSelectStock} selectedStock={selectedStock} demoMode={demoMode} />
       </div>
     </div>
   );
@@ -271,26 +297,16 @@ export default function App() {
         >
           <SearchBar selectedStock={selectedStock} onSelectStock={handleSelectStock} />
           <div className="flex items-center gap-3">
-            {/* Live / Demo indicator */}
-            <div
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
-              style={{ backgroundColor: 'rgba(30, 45, 61, 0.3)' }}
-            >
-              <div
-                className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-green-500' : 'bg-yellow-500'} animate-pulse`}
-              />
-              <span className="text-xs text-gray-400">NSE</span>
-              <span className="text-xs text-gray-600">|</span>
-              <span className={`text-xs ${isLive ? 'text-green-400' : 'text-yellow-400'}`}>
-                {isLive ? 'LIVE' : 'DEMO'}
-              </span>
-              {loading && (
-                <>
-                  <span className="text-xs text-gray-600">|</span>
-                  <span className="text-xs text-blue-400 animate-pulse">Loading...</span>
-                </>
-              )}
-            </div>
+            {/* Data status indicator */}
+            <DataStatusBadge
+              status={headlineStatus}
+              loading={loading}
+              detail={{
+                provider: realQuote?.provider ?? history?.provider,
+                asOf: realQuote?.asOf ?? history?.asOf,
+                staleAgeSec: realQuote?.staleAgeSec ?? history?.staleAgeSec,
+              }}
+            />
 
             {/* Market status */}
             {marketStatus && (
@@ -304,9 +320,9 @@ export default function App() {
             )}
 
             {/* Last update time */}
-            {lastUpdate && (
+            {lastUpdate && !noData && (
               <span className="text-[10px] text-gray-600">
-                Updated: {lastUpdate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                Fetched: {lastUpdate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}
 
@@ -320,6 +336,8 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {demoMode && <SimulationBanner />}
 
         {/* Metrics Bar */}
         <MetricsBar metrics={metrics} stockInfo={selectedStock} optionsData={optionsData} />
