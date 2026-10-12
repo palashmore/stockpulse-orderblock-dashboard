@@ -111,62 +111,11 @@ export function generateCandlestickData(symbol, days = 200) {
   return data;
 }
 
-export function generateOrderBlocks(candleData) {
-  const blocks = [];
-  
-  for (let i = 5; i < candleData.length - 1; i++) {
-    const current = candleData[i];
-    const prev = candleData[i - 1];
-    const prevPrev = candleData[i - 2];
-    
-    // Bullish order block: down candle followed by strong up candle
-    if (prev.close < prev.open && current.close > current.open) {
-      const bodySize = Math.abs(current.close - current.open);
-      const prevBodySize = Math.abs(prev.close - prev.open);
-      
-      if (bodySize > prevBodySize * 1.5) {
-        blocks.push({
-          type: 'bullish',
-          time: prev.time,
-          high: prev.open,
-          low: prev.close,
-          strength: Math.min(100, Math.floor((bodySize / prevBodySize) * 30)),
-          label: 'LONG BUILD-UP',
-          tested: Math.random() > 0.5,
-        });
-      }
-    }
-    
-    // Bearish order block: up candle followed by strong down candle
-    if (prev.close > prev.open && current.close < current.open) {
-      const bodySize = Math.abs(current.close - current.open);
-      const prevBodySize = Math.abs(prev.close - prev.open);
-      
-      if (bodySize > prevBodySize * 1.5) {
-        blocks.push({
-          type: 'bearish',
-          time: prev.time,
-          high: prev.close,
-          low: prev.open,
-          strength: Math.min(100, Math.floor((bodySize / prevBodySize) * 30)),
-          label: 'SHORT BUILD-UP',
-          tested: Math.random() > 0.5,
-        });
-      }
-    }
-  }
-  
-  // Return last N blocks
-  return blocks.slice(-20);
-}
-
 export function calculateSupportResistance(candleData) {
   if (candleData.length < 20) return { supports: [], resistances: [] };
   
   const recent = candleData.slice(-50);
   const currentPrice = recent[recent.length - 1].close;
-  const highs = recent.map(c => c.high).sort((a, b) => b - a);
-  const lows = recent.map(c => c.low).sort((a, b) => a - b);
   
   const range = currentPrice * 0.05;
   
@@ -190,17 +139,7 @@ export function generateSignals(candleData) {
   const recent = candleData.slice(-30);
   const signals = [];
   const currentPrice = recent[recent.length - 1].close;
-  const sma5 = recent.slice(-5).reduce((s, c) => s + c.close, 0) / 5;
-  const sma20 = recent.slice(-20).reduce((s, c) => s + c.close, 0) / 20;
   
-  // Volume analysis
-  const avgVolume = recent.reduce((s, c) => s + c.volume, 0) / recent.length;
-  const lastVolume = recent[recent.length - 1].volume;
-  const volumeRatio = lastVolume / avgVolume;
-  
-  // Trend detection
-  const isBullish = sma5 > sma20;
-  const momentum = ((currentPrice - recent[0].close) / recent[0].close * 100).toFixed(2);
   
   const sr = calculateSupportResistance(candleData);
   

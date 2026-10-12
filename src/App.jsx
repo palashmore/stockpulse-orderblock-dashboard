@@ -44,6 +44,9 @@ export default function App() {
   // Simulated data is only used when explicitly requested with ?demo=1
   const [demoMode] = useState(() => isDemoModeRequested(window.location.search));
 
+  const [today] = useState(() =>
+    new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+  );
   const nifty = useNifty50(demoMode);
   const alertsApi = useAlerts(nifty);
   const [screenerPanel, setScreenerPanel] = useState('board');
@@ -403,12 +406,7 @@ export default function App() {
             )}
 
             <div className="text-xs text-gray-600">
-              {new Date().toLocaleDateString('en-IN', {
-                weekday: 'short',
-                day: 'numeric',
-                month: 'short',
-                year: 'numeric',
-              })}
+              {today}
             </div>
           </div>
         </div>

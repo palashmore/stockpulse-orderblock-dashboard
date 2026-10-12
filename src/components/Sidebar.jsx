@@ -8,7 +8,6 @@ import {
   Settings,
   ChevronRight,
   TrendingUp,
-  Search,
   Layers,
   Eye,
 } from 'lucide-react';

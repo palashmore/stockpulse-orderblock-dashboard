@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Search, X, TrendingUp, TrendingDown } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { NIFTY_STOCKS } from '../data/stockData';
 
 export default function SearchBar({ selectedStock, onSelectStock }) {
@@ -17,7 +17,7 @@ export default function SearchBar({ selectedStock, onSelectStock }) {
 
   useEffect(() => {
     const handler = (e) => {
-      if (e.ctrlKey && e.key === 'k') {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         inputRef.current?.focus();
         setIsOpen(true);
@@ -68,10 +68,19 @@ export default function SearchBar({ selectedStock, onSelectStock }) {
             setIsOpen(true);
           }}
           onBlur={() => setFocused(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && filtered.length > 0) {
+              onSelectStock(filtered[0]);
+              setQuery('');
+              setIsOpen(false);
+              e.currentTarget.blur();
+            }
+          }}
+          aria-label="Search stocks"
           className="bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none flex-1"
         />
         {query && (
-          <button onClick={() => { setQuery(''); setIsOpen(false); }} className="cursor-pointer">
+          <button onClick={() => { setQuery(''); setIsOpen(false); }} className="cursor-pointer" aria-label="Clear search">
             <X size={14} className="text-gray-500 hover:text-gray-300" />
           </button>
         )}

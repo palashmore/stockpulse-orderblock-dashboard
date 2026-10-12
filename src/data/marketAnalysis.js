@@ -201,7 +201,6 @@ export function calculateSR(candles) {
   if (!candles || candles.length < 20) return { supports: [], resistances: [] };
 
   const recent = candles.slice(-60);
-  const currentPrice = recent[recent.length - 1].close;
 
   // Pivot points
   const lastCandle = recent[recent.length - 1];

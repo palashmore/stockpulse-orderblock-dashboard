@@ -77,13 +77,13 @@ export default function AlertsPanel({ nifty, alertsApi, selectedStock, demoMode 
       <form onSubmit={submit} className="flex flex-wrap items-end gap-3 px-4 py-3" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.3)' }}>
         <label className="flex flex-col gap-1 text-[10px] text-gray-500 uppercase tracking-wider">
           Stock
-          <select value={symbol} onChange={(e) => setSymbol(e.target.value)} className={inputClass} style={{ backgroundColor: '#0d1117' }}>
+          <select value={symbol} onChange={(e) => { setSymbol(e.target.value); setError(''); }} className={inputClass} style={{ backgroundColor: '#0d1117' }}>
             {NIFTY_STOCKS.map((s) => <option key={s.symbol} value={s.symbol}>{s.symbol}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1 text-[10px] text-gray-500 uppercase tracking-wider">
           Condition
-          <select value={type} onChange={(e) => setType(e.target.value)} className={inputClass} style={{ backgroundColor: '#0d1117' }}>
+          <select value={type} onChange={(e) => { setType(e.target.value); setError(''); }} className={inputClass} style={{ backgroundColor: '#0d1117' }}>
             <option value="above">Rises to / above</option>
             <option value="below">Falls to / below</option>
           </select>
@@ -95,7 +95,7 @@ export default function AlertsPanel({ nifty, alertsApi, selectedStock, demoMode 
             step="any"
             min="0"
             value={threshold}
-            onChange={(e) => setThreshold(e.target.value)}
+            onChange={(e) => { setThreshold(e.target.value); setError(''); }}
             placeholder={Number.isFinite(currentPrice) ? currentPrice.toFixed(2) : 'Price'}
             className={`${inputClass} w-32`}
           />
