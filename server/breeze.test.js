@@ -167,6 +167,42 @@ describe('client', () => {
     expect(JSON.parse(req.body)).toMatchObject({ stock_code: 'RELIND', exchange_code: 'NSE', product_type: 'cash' });
   });
 
+  it('keeps the session after a single HTTP 401 and drops it after repeated ones', async () => {
+    respond = (req) => (req.path.endsWith('customerdetails')
+      ? { status: 200, json: { Success: { session_token: 'TOKEN' } } }
+      : { status: 401, json: null });
+    const client = make();
+    await client.connect('S');
+    await expect(client.getQuote('RELIND', 'RELIANCE')).rejects.toThrow(/session is kept/);
+    expect(client.isConnected()).toBe(true);
+    await expect(client.getQuote('RELIND', 'RELIANCE')).rejects.toThrow(/session is kept/);
+    await expect(client.getQuote('RELIND', 'RELIANCE')).rejects.toThrow(/expired/);
+    expect(client.isConnected()).toBe(false);
+  });
+
+  it('a successful call resets the rejection count', async () => {
+    let n = 0;
+    respond = (req) => {
+      if (req.path.endsWith('customerdetails')) return { status: 200, json: { Success: { session_token: 'TOKEN' } } };
+      n++;
+      return n % 3 === 0 ? { status: 200, json: { Success: [{ ltp: 1 }] } } : { status: 401, json: null };
+    };
+    const client = make();
+    await client.connect('S');
+    for (let i = 0; i < 6; i++) await client.getQuote('X', 'X').catch(() => {});
+    expect(client.isConnected()).toBe(true);
+  });
+
+  it('drops the session at once when ICICI says the session is invalid', async () => {
+    respond = (req) => (req.path.endsWith('customerdetails')
+      ? { status: 200, json: { Success: { session_token: 'TOKEN' } } }
+      : { status: 401, json: { Status: 401, Error: 'Invalid session.' } });
+    const client = make();
+    await client.connect('S');
+    await expect(client.getQuote('RELIND', 'RELIANCE')).rejects.toThrow(/expired/);
+    expect(client.isConnected()).toBe(false);
+  });
+
   it('drops the session when the provider rejects it', async () => {
     respond = (req) => (req.path.endsWith('customerdetails')
       ? { status: 200, json: { Success: { session_token: 'TOKEN' } } }

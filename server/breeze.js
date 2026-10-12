@@ -190,6 +190,7 @@ export function createBudget({ perMinute = 90, perDay = 4500, now = Date.now } =
 export function createBreezeClient({ appKey, secret, request = httpsRequest, now = Date.now, budget = createBudget({ now }) } = {}) {
   let sessionToken = null;
   let connectedAt = null;
+  let rejectedInARow = 0;
 
   const configured = Boolean(appKey && secret);
 
@@ -207,10 +208,21 @@ export function createBreezeClient({ appKey, secret, request = httpsRequest, now
     const res = await request({ method, path: `${BASE_PATH}/${endpoint}`, headers, body });
     const rejected = res.status === 401 || res.status === 403 || (res.json && String(res.json.Status) === '401');
     if (authenticated && rejected) {
-      sessionToken = null;
-      connectedAt = null;
-      throw new Error('Breeze session expired; sign in again');
+      // A single HTTP 401/403 is not proof the session is dead (ICICI has returned one on a busy moment
+      // while the session was still good), so signing out on it would lose a valid login. The session is
+      // dropped only when ICICI says so in words, or after several rejections in a row.
+      rejectedInARow++;
+      const reason = String(res.json?.Error ?? '').trim();
+      const sessionGone = /invalid session|resource not available|expired|session/i.test(reason) || rejectedInARow >= 3;
+      if (sessionGone) {
+        sessionToken = null;
+        connectedAt = null;
+        rejectedInARow = 0;
+        throw new Error('Breeze session expired; sign in again');
+      }
+      throw new Error(`Breeze rejected the request (HTTP ${res.status}${reason ? `: ${reason}` : ''}); the session is kept, try again`);
     }
+    rejectedInARow = 0;
     if (res.status >= 500 || !res.json) throw new Error(`Breeze HTTP ${res.status}`);
     if (res.json.Error && !res.json.Success) throw new Error(`Breeze: ${res.json.Error}`);
     return res.json;
@@ -270,6 +282,22 @@ export function createBreezeClient({ appKey, secret, request = httpsRequest, now
 
     async getPositions() {
       const json = await call('GET', 'portfoliopositions', {});
+      return Array.isArray(json.Success) ? json.Success : [];
+    },
+
+    // ---- order book, trade book, per-trade detail (documented read-only endpoints)
+    async getOrders(exchangeCode, fromDay, toDay) {
+      const json = await call('GET', 'order', { exchange_code: exchangeCode, from_date: `${fromDay}T00:00:00.000Z`, to_date: `${toDay}T23:59:59.000Z` });
+      return Array.isArray(json.Success) ? json.Success : [];
+    },
+
+    async getTrades(exchangeCode, fromDay, toDay) {
+      const json = await call('GET', 'trades', { exchange_code: exchangeCode, from_date: `${fromDay}T00:00:00.000Z`, to_date: `${toDay}T23:59:59.000Z` });
+      return Array.isArray(json.Success) ? json.Success : [];
+    },
+
+    async getTradeDetail(exchangeCode, orderId) {
+      const json = await call('GET', 'trades', { exchange_code: exchangeCode, order_id: orderId });
       return Array.isArray(json.Success) ? json.Success : [];
     },
 

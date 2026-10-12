@@ -16,8 +16,11 @@ import PortfolioPanel from './components/PortfolioPanel';
 import DiagnosticsPanel from './components/DiagnosticsPanel';
 import StrategyWorkspace from './components/StrategyWorkspace';
 import NormalAnalysis from './components/NormalAnalysis';
+import BrokerBooks from './components/BrokerBooks';
+import ErrorBoundary from './components/ErrorBoundary';
 import { useLiveTick } from './hooks/useLiveTick';
-import { loadSettings } from './data/settings';
+import { loadSettings, saveSettings } from './data/settings';
+import MultiTimeframePanel from './components/MultiTimeframePanel';
 import { useAlerts } from './hooks/useAlerts';
 import { useNifty50 } from './hooks/useNifty50';
 import { getTimeframe, aggregateCandles } from './data/timeframes';
@@ -52,7 +55,7 @@ function formatDataTime(asOf) {
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => {
     const tab = new URLSearchParams(window.location.search).get('tab');
-    return ['dashboard', 'orderblock', 'screener', 'watchlist', 'alerts', 'scanner', 'settings', 'portfolio', 'diagnostics', 'intraday', 'swing', 'analysis'].includes(tab) ? tab : loadSettings(window.localStorage).startTab;
+    return ['dashboard', 'orderblock', 'screener', 'watchlist', 'alerts', 'scanner', 'settings', 'portfolio', 'diagnostics', 'intraday', 'swing', 'analysis', 'books'].includes(tab) ? tab : loadSettings(window.localStorage).startTab;
   });
   const [selectedStock, setSelectedStock] = useState(NIFTY_STOCKS[0]);
 
@@ -62,6 +65,11 @@ export default function App() {
   const [today] = useState(() =>
     new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
   );
+  const [chartIndicators, setChartIndicators] = useState(() => loadSettings(window.localStorage).chartIndicators);
+  const changeIndicators = (next) => {
+    setChartIndicators(next);
+    saveSettings({ ...loadSettings(window.localStorage), chartIndicators: next }, window.localStorage);
+  };
   const nifty = useNifty50(demoMode);
   const alertsApi = useAlerts(nifty);
   const [screenerPanel, setScreenerPanel] = useState('board');
@@ -252,7 +260,7 @@ export default function App() {
   const renderChart = () => (
     noData ? (
       <div className="flex flex-col h-full">
-        <TimeframeBar timeframe={timeframe} onTimeframeChange={handleTimeframeChange} demoMode={demoMode} />
+        <TimeframeBar timeframe={timeframe} onTimeframeChange={handleTimeframeChange} demoMode={demoMode} indicators={chartIndicators} onIndicatorsChange={changeIndicators} />
         {renderUnavailable()}
       </div>
     ) : (
@@ -263,6 +271,8 @@ export default function App() {
         timeframe={timeframe}
         onTimeframeChange={handleTimeframeChange}
         demoMode={demoMode}
+        indicators={chartIndicators}
+        onIndicatorsChange={changeIndicators}
       />
     )
   );
@@ -304,7 +314,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Middle: OI Analysis (when live data available) */}
+      {/* Middle: OI analysis when options data was loaded, otherwise the multi-timeframe trend */}
       <div
         className="flex-shrink-0 overflow-hidden"
         style={{
@@ -313,20 +323,22 @@ export default function App() {
           backgroundColor: '#0d1117',
         }}
       >
-        <OIAnalysisPanel optionsData={optionsData} priceChange={priceChange} />
+        {optionsData ? <OIAnalysisPanel optionsData={optionsData} priceChange={priceChange} /> : <MultiTimeframePanel symbol={selectedStock.symbol} demoMode={demoMode} />}
       </div>
 
-      {/* Right: Signal Cards */}
-      <div
-        className="flex-shrink-0 overflow-hidden"
-        style={{
-          width: '300px',
-          borderLeft: '1px solid rgba(30, 45, 61, 0.3)',
-          backgroundColor: '#0d1117',
-        }}
-      >
-        <SignalCards signals={signals} />
-      </div>
+      {/* Right: option-based signal cards, shown only when there are signals to show */}
+      {signals.length > 0 && (
+        <div
+          className="flex-shrink-0 overflow-hidden"
+          style={{
+            width: '300px',
+            borderLeft: '1px solid rgba(30, 45, 61, 0.3)',
+            backgroundColor: '#0d1117',
+          }}
+        >
+          <SignalCards signals={signals} />
+        </div>
+      )}
     </div>
   );
 
@@ -413,6 +425,8 @@ export default function App() {
         return renderWatchlist();
       case 'diagnostics':
         return <DiagnosticsPanel />;
+      case 'books':
+        return <BrokerBooks selectedStock={selectedStock} />;
       case 'analysis':
         return <NormalAnalysis key={selectedStock.symbol} selectedStock={selectedStock} nifty={nifty} demoMode={demoMode} />;
       case 'intraday':
@@ -494,7 +508,7 @@ export default function App() {
         <MetricsBar metrics={metrics} stockInfo={selectedStock} optionsData={optionsData} />
 
         {/* Content */}
-        {renderContent()}
+        <ErrorBoundary resetKey={activeTab}>{renderContent()}</ErrorBoundary>
       </div>
     </div>
   );

@@ -15,6 +15,7 @@ import {
   Zap,
   CandlestickChart,
   FileSearch,
+  ListChecks,
 } from 'lucide-react';
 
 const menuItems = [
@@ -27,6 +28,7 @@ const menuItems = [
   { icon: Layers, label: 'Multi-Chart', id: 'multichart' },
   { icon: PlayCircle, label: 'Watchlist', id: 'watchlist' },
   { icon: Wallet, label: 'Portfolio', id: 'portfolio' },
+  { icon: ListChecks, label: 'Orders & Positions', id: 'books' },
   { icon: Eye, label: 'Scanner', id: 'scanner' },
   { icon: MessageSquare, label: 'Alerts', id: 'alerts' },
   { icon: Gauge, label: 'API Diagnostics', id: 'diagnostics' },

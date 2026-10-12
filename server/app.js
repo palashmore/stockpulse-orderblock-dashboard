@@ -13,6 +13,11 @@ import {
 import { buildOptionsChain } from './options.js';
 import { loadSecurityMaster } from './securityMaster.js';
 import { buildPortfolio, mapFunds } from './portfolio.js';
+import {
+  isEmptyResult, parseWindow, mapOrder, mapTrade, mapTradeDetail, mapPosition, realisedRoundTrips, orderSummary, depthSummary,
+} from './brokerBooks.js';
+import { depthKey } from './breezeStream.js';
+import { istDateKey } from './marketCalendar.js';
 import { BREEZE_STOCK_CODES } from './breezeCodes.js';
 import { createStreamHub, quoteKey } from './breezeStream.js';
 import { parseNseHolidays, getMarketState, markPartialCandles } from './marketCalendar.js';
@@ -769,9 +774,97 @@ export function createApp({
     }
   });
 
+  // ---- order book, trade book and positions: read-only views of your ICICI Direct account.
+  // Loopback only, never cached by the browser, and held on the server for 30 seconds. This app has no
+  // endpoint that places, changes or cancels an order.
+  const bookCache = new Map();
+  async function book(key, loader) {
+    const hit = bookCache.get(key);
+    if (hit && now() - hit.at < 30000) return hit.body;
+    let rows;
+    try {
+      rows = await loader();
+    } catch (error) {
+      if (!isEmptyResult(error.message)) throw error;
+      rows = [];
+    }
+    const body = { rows, fetchedAt: new Date(now()).toISOString() };
+    bookCache.set(key, { at: now(), body });
+    return body;
+  }
+  const exchangesFor = (q) => (q === 'NFO' ? ['NFO'] : q === 'NSE' ? ['NSE'] : ['NSE', 'NFO']);
+  const brokerGuard = (req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    if (!breeze.isConnected()) return res.status(409).json({ error: 'Sign in to ICICI Direct in Settings first' });
+    next();
+  };
+  const brokerFail = (res, error) => {
+    recordError('broker-books', error.message);
+    if (/session expired/i.test(error.message)) stopStream();
+    res.status(/session expired/i.test(error.message) ? 409 : 502).json({ error: error.message });
+  };
+
+  app.get('/api/broker/positions', localOnly, brokerGuard, async (req, res) => {
+    try {
+      const body = await book('positions', () => breeze.getPositions());
+      res.json({ positions: body.rows.map(mapPosition), fetchedAt: body.fetchedAt, provider: 'ICICI Direct Breeze' });
+    } catch (error) { brokerFail(res, error); }
+  });
+
+  app.get('/api/broker/orders', localOnly, brokerGuard, async (req, res) => {
+    const w = parseWindow(req.query.from, req.query.to, istDateKey(now()));
+    if (w.error) return res.status(400).json({ error: w.error });
+    try {
+      const parts = await Promise.all(exchangesFor(req.query.exchange).map((ex) => book(`orders|${ex}|${w.from}|${w.to}`, () => breeze.getOrders(ex, w.from, w.to))));
+      const orders = parts.flatMap((p) => p.rows).map(mapOrder).sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
+      res.json({ orders, summary: orderSummary(orders), window: w, fetchedAt: parts[0].fetchedAt, provider: 'ICICI Direct Breeze' });
+    } catch (error) { brokerFail(res, error); }
+  });
+
+  app.get('/api/broker/trades', localOnly, brokerGuard, async (req, res) => {
+    const w = parseWindow(req.query.from, req.query.to, istDateKey(now()));
+    if (w.error) return res.status(400).json({ error: w.error });
+    try {
+      const parts = await Promise.all(exchangesFor(req.query.exchange).map((ex) => book(`trades|${ex}|${w.from}|${w.to}`, () => breeze.getTrades(ex, w.from, w.to))));
+      const trades = parts.flatMap((p) => p.rows).map(mapTrade);
+      res.json({ trades, realised: realisedRoundTrips(trades), window: w, fetchedAt: parts[0].fetchedAt, provider: 'ICICI Direct Breeze' });
+    } catch (error) { brokerFail(res, error); }
+  });
+
+  app.get('/api/broker/trades/detail', localOnly, brokerGuard, async (req, res) => {
+    const orderId = String(req.query.orderId || '');
+    const exchange = req.query.exchange === 'NFO' ? 'NFO' : 'NSE';
+    if (!/^[A-Za-z0-9-]{4,40}$/.test(orderId)) return res.status(400).json({ error: 'Invalid order id' });
+    try {
+      const body = await book(`detail|${exchange}|${orderId}`, () => breeze.getTradeDetail(exchange, orderId));
+      res.json({ fills: body.rows.map(mapTradeDetail), fetchedAt: body.fetchedAt });
+    } catch (error) { brokerFail(res, error); }
+  });
+
+  // ---- market depth from the exchange feed: best bid/ask and levels, only if the live stream supplies them.
+  // This is a different thing from the order book above, which is YOUR orders.
+  const depthTimers = new Map();
+  app.get('/api/depth/:symbol', (req, res) => {
+    const symbol = symbolOr400(req, res);
+    if (!symbol) return;
+    res.set('Cache-Control', 'no-store');
+    const token = instrumentFor(symbol)?.token ?? null;
+    if (!breeze.isConnected() || !streamHub.isConnected() || !token) {
+      return res.json({ available: false, reason: !breeze.isConnected() ? 'Broker not signed in' : !token ? 'Instrument not mapped for the live feed' : 'Live stream not connected' });
+    }
+    const key = depthKey(token);
+    streamHub.subscribe(key);
+    clearTimeout(depthTimers.get(key));
+    depthTimers.set(key, setTimeout(() => { streamHub.unsubscribe(key); depthTimers.delete(key); }, 30000));
+    const d = streamHub.getDepth(token);
+    if (!d) return res.json({ available: false, reason: 'Subscribed; no depth received yet (the exchange sends depth only while trading)' });
+    res.json({ available: true, levels: d.levels, summary: depthSummary(d.levels), receivedAt: new Date(d.receivedAt).toISOString(), source: 'ICICI Direct live feed' });
+  });
+
   app.post('/api/auth/breeze/disconnect', localOnly, (req, res) => {
     breeze.disconnect();
     stopStream();
+    bookCache.clear();
     portfolioCache = null;
     res.json({ connected: false });
   });

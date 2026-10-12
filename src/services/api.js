@@ -119,3 +119,14 @@ export async function fetchPortfolio() {
 export async function fetchDiagnostics() {
   return await apiFetch('/diagnostics');
 }
+
+// Read-only broker books (loopback-only on the server). Resolves the response body, or { error }.
+export async function fetchBroker(path) {
+  try {
+    const response = await fetch(`${API_BASE}/broker${path}`, { cache: 'no-store' });
+    const body = await response.json();
+    return response.ok ? body : { error: body.error || `Request failed (${response.status})` };
+  } catch {
+    return { error: 'Could not reach the server' };
+  }
+}

@@ -1,23 +1,32 @@
 import { describe, it, expect } from 'vitest';
-import { validateSettings, loadSettings, saveSettings, DEFAULT_SETTINGS, SETTINGS_KEY } from './settings';
+import { validateSettings, validateIndicators, loadSettings, saveSettings, DEFAULT_SETTINGS, SETTINGS_KEY } from './settings';
 
 const memory = (initial) => {
   const data = new Map(initial === undefined ? [] : [[SETTINGS_KEY, initial]]);
   return { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, v) };
 };
 
+describe('chart indicator settings', () => {
+  it('keeps only known switches that are on, and defaults when missing', () => {
+    expect(validateIndicators({ ema9: true, rsi: false, bogus: true, vwap: 'yes' })).toEqual({ ema9: true });
+    expect(validateIndicators(null)).toEqual({ sma20: true, sma50: true, vwap: true });
+    expect(validateSettings({ chartIndicators: { macd: true } }).chartIndicators).toEqual({ macd: true });
+    expect(validateSettings({}).chartIndicators).toEqual({ sma20: true, sma50: true, vwap: true });
+  });
+});
+
 describe('settings', () => {
   it('falls back to defaults field by field for invalid values', () => {
     expect(validateSettings(null)).toEqual(DEFAULT_SETTINGS);
     expect(validateSettings({ defaultTimeframe: '7m', startTab: 'nope', hideAmounts: 'yes' })).toEqual(DEFAULT_SETTINGS);
-    expect(validateSettings({ defaultTimeframe: '5m', startTab: 'screener', hideAmounts: false })).toEqual({ defaultTimeframe: '5m', startTab: 'screener', hideAmounts: false });
+    expect(validateSettings({ defaultTimeframe: '5m', startTab: 'screener', hideAmounts: false })).toEqual({ defaultTimeframe: '5m', startTab: 'screener', hideAmounts: false, chartIndicators: DEFAULT_SETTINGS.chartIndicators });
     expect(validateSettings({ defaultTimeframe: '5m', startTab: 'x' })).toMatchObject({ defaultTimeframe: '5m', startTab: 'orderblock' });
   });
 
   it('round-trips and survives corrupt or unavailable storage', () => {
     const s = memory();
     expect(saveSettings({ defaultTimeframe: '15m', startTab: 'scanner', hideAmounts: false }, s)).toBe(true);
-    expect(loadSettings(s)).toEqual({ defaultTimeframe: '15m', startTab: 'scanner', hideAmounts: false });
+    expect(loadSettings(s)).toEqual({ defaultTimeframe: '15m', startTab: 'scanner', hideAmounts: false, chartIndicators: DEFAULT_SETTINGS.chartIndicators });
     expect(loadSettings(memory('{not json'))).toEqual(DEFAULT_SETTINGS);
     expect(loadSettings(memory())).toEqual(DEFAULT_SETTINGS);
     const broken = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('full'); } };

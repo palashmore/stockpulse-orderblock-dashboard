@@ -1,17 +1,29 @@
 import { TIMEFRAMES } from './timeframes';
+import { OVERLAYS, PANES, DEFAULT_INDICATORS } from './chartConfig';
 
 // Non-secret user preferences, kept in this browser. Credentials and tokens never live here: they
 // stay in the server's .env file and memory. Stored data is validated on load, so a corrupt or
 // outdated entry falls back to defaults field by field instead of breaking the app.
 export const SETTINGS_KEY = 'stockpulse.settings.v1';
 
-export const START_TABS = ['orderblock', 'intraday', 'swing', 'analysis', 'dashboard', 'screener', 'scanner', 'watchlist', 'alerts', 'portfolio'];
+export const START_TABS = ['orderblock', 'intraday', 'swing', 'analysis', 'dashboard', 'books', 'screener', 'scanner', 'watchlist', 'alerts', 'portfolio'];
 
 export const DEFAULT_SETTINGS = {
   defaultTimeframe: 'D',
   startTab: 'orderblock',
   hideAmounts: true,
+  chartIndicators: DEFAULT_INDICATORS,
 };
+
+const INDICATOR_KEYS = [...OVERLAYS, ...PANES].map((o) => o.key);
+
+/** Keep only known indicator switches, as booleans; anything else is dropped. */
+export function validateIndicators(raw) {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_INDICATORS };
+  const out = {};
+  for (const key of INDICATOR_KEYS) if (raw[key] === true) out[key] = true;
+  return out;
+}
 
 export function validateSettings(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
@@ -19,6 +31,7 @@ export function validateSettings(raw) {
     defaultTimeframe: TIMEFRAMES.some((t) => t.id === r.defaultTimeframe) ? r.defaultTimeframe : DEFAULT_SETTINGS.defaultTimeframe,
     startTab: START_TABS.includes(r.startTab) ? r.startTab : DEFAULT_SETTINGS.startTab,
     hideAmounts: typeof r.hideAmounts === 'boolean' ? r.hideAmounts : DEFAULT_SETTINGS.hideAmounts,
+    chartIndicators: validateIndicators(r.chartIndicators),
   };
 }
 
