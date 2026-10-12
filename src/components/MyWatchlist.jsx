@@ -3,7 +3,7 @@ import { X, RefreshCw } from 'lucide-react';
 import { useWatchlist } from '../hooks/useWatchlist';
 import { useQuotesBatch } from '../hooks/useQuotesBatch';
 import { searchStocks } from '../services/api';
-import { sinceAddedPct } from '../data/watchStore';
+import { sinceAddedPct, WATCH_KINDS, WATCH_LABELS } from '../data/watchStore';
 import { STATUS_META } from '../data/dataStatus';
 
 const GREEN = '#00e676';
@@ -14,7 +14,9 @@ const vol = (v) => (!Number.isFinite(v) ? '—' : v >= 1e7 ? `${(v / 1e7).toFixe
 
 // Stocks you are following today. Shared with the stars on every list; saved in this browser.
 export default function MyWatchlist({ onOpen }) {
-  const watch = useWatchlist();
+  const [kind, setKind] = useState('daily');
+  const watch = useWatchlist(kind);
+  const other = kind === 'daily' ? 'swing' : 'daily';
   const symbols = useMemo(() => watch.list.map((e) => e.symbol), [watch.list]);
   const { result, failed, loading, reload } = useQuotesBatch(symbols, true);
   const [query, setQuery] = useState('');
@@ -55,9 +57,12 @@ export default function MyWatchlist({ onOpen }) {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto" style={{ backgroundColor: '#0a0e17' }}>
       <div className="flex flex-wrap items-center gap-2 px-4 py-2" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.3)' }}>
-        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mr-2">My Watchlist ({watch.list.length})</h2>
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mr-2">My Watchlist</h2>
+        {WATCH_KINDS.map((k) => (
+          <button key={k} onClick={() => setKind(k)} className={`px-2.5 py-1 text-xs rounded cursor-pointer ${kind === k ? 'bg-green-500/15 text-green-400' : 'text-gray-500 hover:text-gray-300'}`}>{WATCH_LABELS[k]} ({watch.lists[k].length})</button>
+        ))}
         <div className="relative">
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Add any NSE stock" aria-label="Add a stock to the watchlist" className="w-56 px-2 py-1.5 text-xs rounded bg-transparent text-gray-200 border border-gray-700 focus:border-green-500 outline-none" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Add to ${WATCH_LABELS[kind]}`} aria-label={`Add a stock to the ${WATCH_LABELS[kind]} watchlist`} className="w-56 px-2 py-1.5 text-xs rounded bg-transparent text-gray-200 border border-gray-700 focus:border-green-500 outline-none" />
           {shownHits.length > 0 && (
             <div className="absolute z-30 mt-1 w-72 rounded-md overflow-hidden" style={{ backgroundColor: '#151d2b', border: '1px solid #1e2d3d' }}>
               {shownHits.map((s) => (
@@ -79,7 +84,7 @@ export default function MyWatchlist({ onOpen }) {
       {!watch.storageOk && <p className="px-4 py-2 text-[11px]" style={{ color: RED }}>Browser storage is blocked, so this watchlist will be lost when you close the page.</p>}
 
       {watch.list.length === 0 ? (
-        <p className="px-4 py-8 text-xs text-gray-500">Nothing here yet. Search above, or click the star beside any stock in Stock Lists or the Scanner.</p>
+        <p className="px-4 py-8 text-xs text-gray-500">Nothing in your {WATCH_LABELS[kind]} list yet. Search above, or click the star beside any stock in Stock Lists or the Scanner.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -102,7 +107,10 @@ export default function MyWatchlist({ onOpen }) {
                     <td className="px-3 py-2 text-right font-mono text-gray-300">{vol(q?.volume)}</td>
                     <td className="px-3 py-2 text-right font-mono text-gray-300">{Number.isFinite(rel) ? `${rel.toFixed(1)}x` : '—'}</td>
                     <td className="px-3 py-2 text-right font-mono text-gray-500">{q && Number.isFinite(q.low) && Number.isFinite(q.high) ? `${q.low.toFixed(2)} – ${q.high.toFixed(2)}` : '—'}</td>
-                    <td className="px-3 py-2 text-right"><button onClick={(e) => { e.stopPropagation(); watch.remove(r.symbol); }} aria-label={`Remove ${r.symbol}`} className="p-1 text-gray-600 hover:text-red-400 cursor-pointer"><X size={13} /></button></td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <button onClick={(e) => { e.stopPropagation(); watch.move(r.symbol, other); }} className="px-1.5 py-0.5 mr-1 text-[10px] rounded bg-white/5 text-gray-400 hover:text-gray-200 cursor-pointer" title={`Move to ${WATCH_LABELS[other]}`}>→ {WATCH_LABELS[other]}</button>
+                      <button onClick={(e) => { e.stopPropagation(); watch.remove(r.symbol); }} aria-label={`Remove ${r.symbol}`} className="p-1 text-gray-600 hover:text-red-400 cursor-pointer"><X size={13} /></button>
+                    </td>
                   </tr>
                 );
               })}

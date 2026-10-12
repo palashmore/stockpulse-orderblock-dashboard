@@ -52,15 +52,19 @@ export function moversFromQuotes(quotes, limit = 15) {
 export function orderBlockList(rows, side, maxDistancePct = 2) {
   return rows
     .filter((r) => r.metrics?.orderBlocks?.[side] && r.metrics.orderBlocks[side].distancePct <= maxDistancePct)
-    .map((r) => ({ symbol: r.symbol, name: r.name, sector: r.sector, price: r.metrics.price, changePct: r.metrics.changePct, trend: r.metrics.trend, zone: r.metrics.orderBlocks[side] }))
+    .map((r) => ({ symbol: r.symbol, name: r.name, sector: r.sector, indices: r.indices, price: r.metrics.price, changePct: r.metrics.changePct, trend: r.metrics.trend, zone: r.metrics.orderBlocks[side] }))
     .sort((a, b) => a.zone.distancePct - b.zone.distancePct || b.zone.strength - a.zone.strength || a.symbol.localeCompare(b.symbol));
 }
 
-/** Stocks whose swing rules matched within the last few daily bars, newest first. */
-export function swingSetupList(rows) {
+/**
+ * Stocks whose swing rules matched within the last few daily bars, newest first. By default only
+ * setups that are still valid (not stopped, past a target, stretched or expired); pass
+ * { actionable: false } for the ones that are no longer valid.
+ */
+export function swingSetupList(rows, { actionable = true } = {}) {
   return rows
-    .filter((r) => r.metrics?.swing)
-    .map((r) => ({ symbol: r.symbol, name: r.name, sector: r.sector, price: r.metrics.price, changePct: r.metrics.changePct, adx: r.metrics.adx, rsi: r.metrics.rsi, signal: r.metrics.swing }))
+    .filter((r) => r.metrics?.swing && Boolean(r.metrics.swing.actionable) === actionable)
+    .map((r) => ({ symbol: r.symbol, name: r.name, sector: r.sector, indices: r.indices, price: r.metrics.price, changePct: r.metrics.changePct, adx: r.metrics.adx, rsi: r.metrics.rsi, signal: r.metrics.swing }))
     .sort((a, b) => a.signal.ageBars - b.signal.ageBars || a.symbol.localeCompare(b.symbol));
 }
 
@@ -68,20 +72,17 @@ export function swingSetupList(rows) {
 export function trendingList(rows, direction, minAdx = 25) {
   return rows
     .filter((r) => r.metrics && isNum(r.metrics.adx) && r.metrics.adx >= minAdx && r.metrics.trend === direction && r.metrics.diBias === direction)
-    .map((r) => ({ symbol: r.symbol, name: r.name, sector: r.sector, price: r.metrics.price, changePct: r.metrics.changePct, adx: r.metrics.adx, rsi: r.metrics.rsi, from20dHighPct: r.metrics.from20dHighPct, vsEma20Pct: r.metrics.vsEma20Pct }))
+    .map((r) => ({ symbol: r.symbol, name: r.name, sector: r.sector, indices: r.indices, price: r.metrics.price, changePct: r.metrics.changePct, adx: r.metrics.adx, rsi: r.metrics.rsi, from20dHighPct: r.metrics.from20dHighPct, vsEma20Pct: r.metrics.vsEma20Pct }))
     .sort((a, b) => b.adx - a.adx || a.symbol.localeCompare(b.symbol));
 }
 
 /**
- * Intraday list from per-stock signal scans. Only signals on the most recent session in each stock's
- * data are kept, and only those within `maxAgeBars` of that session's last completed bar, newest first.
+ * Intraday list from per-stock signal scans, newest first. `actionable` true keeps only signals that
+ * are still valid (see signalLifecycle); false keeps the rest (stopped, past a target, expired,
+ * stretched, or from an earlier session), for review.
  */
-export function intradayList(scans, maxAgeBars = 6) {
-  const out = [];
-  for (const s of scans) {
-    if (!s.latest) continue;
-    if (s.latest.ageBars > maxAgeBars) continue;
-    out.push(s);
-  }
-  return out.sort((a, b) => a.latest.ageBars - b.latest.ageBars || a.symbol.localeCompare(b.symbol));
+export function intradayList(scans, { actionable = true } = {}) {
+  return scans
+    .filter((s) => s.latest && Boolean(s.latest.lifecycle?.actionable) === actionable)
+    .sort((a, b) => a.latest.ageBars - b.latest.ageBars || a.symbol.localeCompare(b.symbol));
 }

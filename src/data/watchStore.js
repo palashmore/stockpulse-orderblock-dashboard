@@ -57,3 +57,55 @@ export const removeFromWatch = (list, symbol) => list.filter((e) => e.symbol !==
 export function sinceAddedPct(entry, price) {
   return isNum(entry.addedPrice) && isNum(price) && entry.addedPrice > 0 ? ((price - entry.addedPrice) / entry.addedPrice) * 100 : null;
 }
+
+// ---- two separate lists: stocks for today's trading, and stocks for swing trades over days or weeks.
+// They are stored together but never mix: adding to one does not touch the other.
+export const WATCH_KEY_V3 = 'stockpulse.watchlists.v3';
+export const WATCH_KINDS = ['daily', 'swing'];
+export const WATCH_LABELS = { daily: 'Daily trading', swing: 'Swing' };
+
+export const emptyLists = () => ({ daily: [], swing: [] });
+
+/** Load both lists. The earlier single list becomes the daily list, and the swing list starts empty. */
+export function loadWatchlists(storage) {
+  try {
+    const v3 = storage.getItem(WATCH_KEY_V3);
+    if (v3 !== null) {
+      const parsed = JSON.parse(v3);
+      return { daily: sanitize(parsed?.daily), swing: sanitize(parsed?.swing) };
+    }
+  } catch {
+    return emptyLists();
+  }
+  return { daily: loadWatch(storage), swing: [] };
+}
+
+export function saveWatchlists(lists, storage) {
+  try {
+    storage.setItem(WATCH_KEY_V3, JSON.stringify({ daily: sanitize(lists.daily), swing: sanitize(lists.swing) }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const validKind = (kind) => WATCH_KINDS.includes(kind);
+
+export function addToList(lists, kind, symbol, price, nowIso) {
+  if (!validKind(kind)) return lists;
+  const next = addToWatch(lists[kind], symbol, price, nowIso);
+  return next === lists[kind] ? lists : { ...lists, [kind]: next };
+}
+
+export function removeFromList(lists, kind, symbol) {
+  if (!validKind(kind)) return lists;
+  return { ...lists, [kind]: removeFromWatch(lists[kind], symbol) };
+}
+
+/** Move a stock from one list to the other, keeping when and at what price it was first added. */
+export function moveBetween(lists, symbol, from, to) {
+  if (!validKind(from) || !validKind(to) || from === to) return lists;
+  const entry = lists[from].find((e) => e.symbol === symbol);
+  if (!entry || lists[to].some((e) => e.symbol === symbol)) return lists;
+  return { ...lists, [from]: removeFromWatch(lists[from], symbol), [to]: [entry, ...lists[to]] };
+}

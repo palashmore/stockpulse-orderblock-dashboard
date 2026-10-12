@@ -42,14 +42,15 @@ const bottomItems = [
 
 // Every screen id in the sidebar. App uses this list to accept ?tab= links, so a link can never silently
 // fall back to another screen because a new tab was added to the menu but not to a separate list.
-export const TAB_IDS = [...menuItems, ...bottomItems].map((item) => item.id);
+export const NAV_ITEMS = [...menuItems, ...bottomItems];
+export const TAB_IDS = NAV_ITEMS.map((item) => item.id);
 
 export default function Sidebar({ activeTab, onTabChange, marketLabel = null, marketOpen = null }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
     <div
-      className={`fixed left-0 top-0 h-full z-50 flex flex-col transition-all duration-300 ${
+      className={`fixed left-0 top-0 h-full z-50 hidden md:flex flex-col transition-all duration-300 ${
         expanded ? 'w-52' : 'w-14'
       }`}
       style={{

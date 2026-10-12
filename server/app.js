@@ -878,21 +878,36 @@ export function createApp({
   // ---- market depth from the exchange feed: best bid/ask and levels, only if the live stream supplies them.
   // This is a different thing from the order book above, which is YOUR orders.
   const depthTimers = new Map();
-  app.get('/api/depth/:symbol', (req, res) => {
-    const symbol = symbolOr400(req, res);
-    if (!symbol) return;
-    res.set('Cache-Control', 'no-store');
+  // Depth for one symbol: subscribes to the feed on first use and keeps the subscription for 30 s after the last request
+  function depthFor(symbol) {
     const token = instrumentFor(symbol)?.token ?? null;
     if (!breeze.isConnected() || !streamHub.isConnected() || !token) {
-      return res.json({ available: false, reason: !breeze.isConnected() ? 'Broker not signed in' : !token ? 'Instrument not mapped for the live feed' : 'Live stream not connected' });
+      return { symbol, available: false, reason: !breeze.isConnected() ? 'Broker not signed in' : !token ? 'Instrument not mapped for the live feed' : 'Live stream not connected' };
     }
     const key = depthKey(token);
     streamHub.subscribe(key);
     clearTimeout(depthTimers.get(key));
     depthTimers.set(key, setTimeout(() => { streamHub.unsubscribe(key); depthTimers.delete(key); }, 30000));
     const d = streamHub.getDepth(token);
-    if (!d) return res.json({ available: false, reason: 'Subscribed; no depth received yet (the exchange sends depth only while trading)' });
-    res.json({ available: true, levels: d.levels, summary: depthSummary(d.levels), receivedAt: new Date(d.receivedAt).toISOString(), source: 'ICICI Direct live feed' });
+    if (!d) return { symbol, available: false, reason: 'Subscribed; no depth received yet (the exchange sends depth only while trading)' };
+    return { symbol, available: true, levels: d.levels, summary: depthSummary(d.levels), receivedAt: new Date(d.receivedAt).toISOString(), source: 'ICICI Direct live feed' };
+  }
+
+  app.get('/api/depth/:symbol', (req, res) => {
+    const symbol = symbolOr400(req, res);
+    if (!symbol) return;
+    res.set('Cache-Control', 'no-store');
+    res.json(depthFor(symbol));
+  });
+
+  // Several symbols at once (up to 10), for the order-flow view
+  app.get('/api/depth', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const symbols = [...new Set(String(req.query.symbols || '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean))];
+    if (symbols.length === 0 || symbols.length > 10 || !symbols.every(isValidSymbol)) {
+      return res.status(400).json({ error: 'Send between 1 and 10 valid symbols' });
+    }
+    res.json({ depths: symbols.map(depthFor) });
   });
 
   app.post('/api/auth/breeze/disconnect', localOnly, (req, res) => {

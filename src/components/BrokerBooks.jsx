@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { fetchBroker } from '../services/api';
+import { fetchBroker, API_BASE } from '../services/api';
 import { loadSettings } from '../data/settings';
 
 const GREEN = '#00e676';
@@ -241,7 +241,7 @@ function Depth({ symbol }) {
     let cancelled = false;
     const poll = async () => {
       try {
-        const r = await fetch(`http://localhost:3001/api/depth/${encodeURIComponent(symbol)}`, { cache: 'no-store' });
+        const r = await fetch(`${API_BASE}/depth/${encodeURIComponent(symbol)}`, { cache: 'no-store' });
         const j = await r.json();
         if (!cancelled) setD(j);
       } catch {

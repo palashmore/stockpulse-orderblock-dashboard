@@ -7,6 +7,8 @@
     "dev": "vite",
     "server": "node --env-file-if-exists=.env server/index.js",
     "dev:all": "concurrently \"npm run server\" \"npm run dev\"",
+    "dev:lan": "concurrently \"npm run server\" \"vite --host\"",
+    "preview:all": "concurrently \"npm run server\" \"vite preview --host\"",
     "build": "vite build",
     "lint": "oxlint",
     "test": "vitest run",

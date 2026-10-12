@@ -3,8 +3,9 @@ import { ArrowUpDown, Star, RefreshCw } from 'lucide-react';
 import { useScreenerData } from '../hooks/useScreenerData';
 import {
   DEFAULT_FILTERS, PRESETS, presetFilters, validateFilters, screen,
-  loadSavedFilters, saveFilters, upsertSaved, loadWatchlist, saveWatchlist,
+  loadSavedFilters, saveFilters, upsertSaved,
 } from '../data/screenFilters';
+import { useWatchlist } from '../hooks/useWatchlist';
 import { NIFTY_STOCKS } from '../data/stockData';
 
 const GREEN = '#00e676';
@@ -47,7 +48,8 @@ export default function DailyScreener({ onSelectStock }) {
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [sort, setSort] = useState({ key: 'turnoverCr', dir: 'desc' });
   const [saved, setSaved] = useState(() => loadSavedFilters(window.localStorage));
-  const [watch, setWatch] = useState(() => new Set(loadWatchlist(window.localStorage)));
+  const swingWatch = useWatchlist('swing');
+  const watch = swingWatch.symbols;
   const [name, setName] = useState('');
   const [storageOk, setStorageOk] = useState(true);
 
@@ -55,12 +57,7 @@ export default function DailyScreener({ onSelectStock }) {
   const set = (patch) => setFilters((cur) => validateFilters({ ...cur, ...patch }));
   const toggleSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'symbol' ? 'asc' : 'desc' }));
 
-  const toggleStar = (symbol) => {
-    const next = new Set(watch);
-    if (next.has(symbol)) next.delete(symbol); else next.add(symbol);
-    setWatch(next);
-    setStorageOk(saveWatchlist(next, window.localStorage));
-  };
+  const toggleStar = (symbol, price) => swingWatch.toggle(symbol, price);
   const saveCurrent = () => {
     const list = upsertSaved(saved, name, filters);
     if (!list) return;
@@ -103,7 +100,7 @@ export default function DailyScreener({ onSelectStock }) {
         <Num label="Turnover ₹Cr ≥" value={filters.minTurnoverCr} onChange={(v) => set({ minTurnoverCr: v })} width="w-28" />
         <div className="flex flex-col gap-1.5">
           <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer"><input type="checkbox" checked={filters.aboveVwap} onChange={(e) => set({ aboveVwap: e.target.checked })} /> Above 20-day VWAP</label>
-          <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer"><input type="checkbox" checked={filters.starredOnly} onChange={(e) => set({ starredOnly: e.target.checked })} /> Watchlist only ({watch.size})</label>
+          <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer"><input type="checkbox" checked={filters.starredOnly} onChange={(e) => set({ starredOnly: e.target.checked })} /> Swing watchlist only ({watch.size})</label>
         </div>
         <button onClick={() => setFilters(DEFAULT_FILTERS)} disabled={active === 0} className="px-3 py-1.5 text-xs rounded bg-white/5 text-gray-400 enabled:hover:text-gray-200 enabled:cursor-pointer disabled:opacity-40">Clear{active ? ` (${active})` : ''}</button>
         <div className="flex items-end gap-1.5 ml-auto">
@@ -149,7 +146,7 @@ export default function DailyScreener({ onSelectStock }) {
                 return (
                   <tr key={r.symbol} className="hover:bg-white/5" style={{ borderTop: '1px solid rgba(30, 45, 61, 0.2)' }}>
                     <td className="pl-3">
-                      <button onClick={() => toggleStar(r.symbol)} aria-label={watch.has(r.symbol) ? `Remove ${r.symbol} from watchlist` : `Add ${r.symbol} to watchlist`} className="cursor-pointer">
+                      <button onClick={() => toggleStar(r.symbol, m.price)} aria-label={watch.has(r.symbol) ? `Remove ${r.symbol} from watchlist` : `Add ${r.symbol} to watchlist`} className="cursor-pointer">
                         <Star size={13} fill={watch.has(r.symbol) ? '#ffd600' : 'none'} color={watch.has(r.symbol) ? '#ffd600' : '#64748b'} />
                       </button>
                     </td>
@@ -178,7 +175,7 @@ export default function DailyScreener({ onSelectStock }) {
       <p className="px-4 py-3 text-[10px] text-gray-600">
         Covers {rows.length} of the {total} Nifty 50 stocks, not the whole market. Indicators use completed daily candles only (the in-progress day is ignored). Stocks with stale or missing data are left out.
         &quot;Swing setup&quot; is whether the Swing workspace rules matched on the last completed bar; it is a rule match, not a recommendation. Intraday setups are not screened here: open a stock in the Intraday tab.
-        Turnover is the 20-day average volume × price. The watchlist is saved in this browser.
+        Turnover is the 20-day average volume × price. Stars add to your Swing watchlist (saved in this browser).
       </p>
     </div>
   );

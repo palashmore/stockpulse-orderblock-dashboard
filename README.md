@@ -72,6 +72,23 @@ npm run dev
 * Frontend: `http://localhost:5173`
 * Backend API: `http://localhost:3001`
 
+### Phone / tablet (installable web app)
+
+The layout is responsive: below 768 px wide the side bar is replaced by a bottom navigation bar (four main screens plus a **More** sheet).
+The app is also a PWA (manifest + a service worker that caches only the app shell, never market data or account data), so a production build can be installed to the home screen.
+
+```bash
+# Serve the app and the API on your local network, then open http://<this-computer-ip>:5173 on the phone
+npm run dev:lan
+
+# Installable build (service worker is registered only in production builds)
+npm run build && npm run preview:all
+```
+
+* The page finds the API at the same host on port `3001`. Set `VITE_API_BASE` to override it.
+* Account endpoints (broker session, portfolio, order/trade books) answer only on the computer running the server (loopback), so on a phone you see market data and analysis but not your account. This is deliberate.
+* Browsers only offer "Install" on `https://` or `localhost`; over plain LAN HTTP you can still use the app from the browser.
+
 ---
 
 ## 📦 Production Build & Deploy

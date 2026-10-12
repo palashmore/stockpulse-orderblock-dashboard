@@ -61,15 +61,14 @@ export default function SearchBar({ selectedStock, onSelectStock }) {
   }, []);
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative min-w-0 flex-1 sm:flex-none" ref={dropdownRef}>
       <div
-        className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-all ${
+        className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-all w-full sm:w-80 ${
           focused ? 'ring-1 ring-green-500/30' : ''
         }`}
         style={{
           backgroundColor: '#111827',
           border: '1px solid rgba(30, 45, 61, 0.6)',
-          width: '320px',
         }}
       >
         <Search size={16} className="text-gray-500" />

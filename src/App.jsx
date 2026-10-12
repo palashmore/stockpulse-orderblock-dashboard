@@ -22,6 +22,7 @@ import MyWatchlist from './components/MyWatchlist';
 import MultiChart from './components/MultiChart';
 import ErrorBoundary from './components/ErrorBoundary';
 import { TAB_IDS } from './components/Sidebar';
+import MobileNav from './components/MobileNav';
 import { useLiveTick } from './hooks/useLiveTick';
 import { loadSettings, saveSettings } from './data/settings';
 import MultiTimeframePanel from './components/MultiTimeframePanel';
@@ -73,11 +74,6 @@ export default function App() {
   const changeIndicators = (next) => {
     setChartIndicators(next);
     saveSettings({ ...loadSettings(window.localStorage), chartIndicators: next }, window.localStorage);
-  };
-  const [indexId, setIndexId] = useState(() => loadSettings(window.localStorage).index);
-  const changeIndex = (id) => {
-    setIndexId(id);
-    saveSettings({ ...loadSettings(window.localStorage), index: id }, window.localStorage);
   };
   const nifty = useNifty50(demoMode);
   const alertsApi = useAlerts(nifty);
@@ -305,20 +301,17 @@ export default function App() {
 
   // Order block view (orderblock tab)
   const renderDashboard = () => (
-    <div className="flex flex-1 min-h-0 overflow-hidden">
+    <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-y-auto md:overflow-hidden">
       {/* Left: Chart + Order Blocks */}
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0 md:min-h-0">
         {/* Chart Area */}
-        <div className="flex-1 min-h-0" style={{ minHeight: '55%' }}>
+        <div className="flex-1 min-h-[380px] md:min-h-0 md:[min-height:55%]">
           {renderChart()}
         </div>
         {/* Order Blocks Panel */}
         <div
-          className="overflow-hidden"
-          style={{
-            height: '45%',
-            borderTop: '1px solid rgba(30, 45, 61, 0.3)',
-          }}
+          className="overflow-hidden h-[420px] md:h-[45%]"
+          style={{ borderTop: '1px solid rgba(30, 45, 61, 0.3)' }}
         >
           <OrderBlockPanel orderBlocks={orderBlocks} />
         </div>
@@ -326,9 +319,8 @@ export default function App() {
 
       {/* Middle: OI analysis when options data was loaded, otherwise the multi-timeframe trend */}
       <div
-        className="flex-shrink-0 overflow-hidden"
+        className="flex-shrink-0 overflow-hidden w-full md:w-[300px] h-[460px] md:h-auto"
         style={{
-          width: '300px',
           borderLeft: '1px solid rgba(30, 45, 61, 0.3)',
           backgroundColor: '#0d1117',
         }}
@@ -339,9 +331,8 @@ export default function App() {
       {/* Right: option-based signal cards, shown only when there are signals to show */}
       {signals.length > 0 && (
         <div
-          className="flex-shrink-0 overflow-hidden"
+          className="flex-shrink-0 overflow-hidden w-full md:w-[300px] h-[460px] md:h-auto"
           style={{
-            width: '300px',
             borderLeft: '1px solid rgba(30, 45, 61, 0.3)',
             backgroundColor: '#0d1117',
           }}
@@ -361,16 +352,15 @@ export default function App() {
 
   // Screener view: chart plus the ranked board (or the full watchlist)
   const renderScreener = () => (
-    <div className="flex flex-1 min-h-0 overflow-hidden">
-      <div className="flex-1 flex flex-col min-w-0">
+    <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-y-auto md:overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 min-h-[420px] md:min-h-0">
         <div className="flex-1 min-h-0">
           {renderChart()}
         </div>
       </div>
       <div
-        className="flex flex-col flex-shrink-0 overflow-hidden"
+        className="flex flex-col flex-shrink-0 overflow-hidden w-full md:w-[340px] h-[480px] md:h-auto"
         style={{
-          width: '340px',
           borderLeft: '1px solid rgba(30, 45, 61, 0.3)',
           backgroundColor: '#0d1117',
         }}
@@ -405,24 +395,6 @@ export default function App() {
     </div>
   );
 
-  // Placeholder view
-  const renderPlaceholder = (title) => (
-    <div className="flex-1 flex items-center justify-center">
-      <div className="text-center">
-        <div
-          className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
-          style={{
-            background: 'linear-gradient(135deg, rgba(0,230,118,0.15), rgba(0,176,255,0.15))',
-          }}
-        >
-          <span className="text-2xl">📊</span>
-        </div>
-        <h2 className="text-lg font-semibold text-gray-300 mb-1">{title}</h2>
-        <p className="text-sm text-gray-600">Coming soon — select Order Blocks or Screener to get started</p>
-      </div>
-    </div>
-  );
-
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
@@ -434,7 +406,7 @@ export default function App() {
       case 'watchlist':
         return demoMode ? renderWatchlist() : <MyWatchlist onOpen={openStockFromOverview} />;
       case 'lists':
-        return demoMode ? <p className="px-4 py-6 text-xs text-gray-500">Stock Lists need real market data and are off in simulated mode.</p> : <StockLists indexId={indexId} onIndexChange={changeIndex} onOpen={openStockFromOverview} market={marketStatus} />;
+        return demoMode ? <p className="px-4 py-6 text-xs text-gray-500">Stock Lists need real market data and are off in simulated mode.</p> : <StockLists onOpen={openStockFromOverview} market={marketStatus} />;
       case 'diagnostics':
         return <DiagnosticsPanel />;
       case 'books':
@@ -466,10 +438,12 @@ export default function App() {
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} marketLabel={demoMode ? 'Simulated data' : describeMarketState(marketStatus)} marketOpen={demoMode ? null : marketStatus ? marketStatus.isOpen : null} />
 
       {/* Main Content */}
-      <div className="flex flex-col flex-1 min-w-0" style={{ marginLeft: '56px' }}>
+      <MobileNav activeTab={activeTab} onTabChange={setActiveTab} marketLabel={demoMode ? 'Simulated data' : describeMarketState(marketStatus)} marketOpen={demoMode ? null : marketStatus ? marketStatus.isOpen : null} />
+
+      <div className="flex flex-col flex-1 min-w-0 md:ml-14" style={{ paddingBottom: 'var(--mobile-nav, 0px)' }}>
         {/* Top Bar */}
         <div
-          className="flex items-center justify-between px-4 h-14 flex-shrink-0"
+          className="flex items-center justify-between gap-2 px-3 md:px-4 h-14 flex-shrink-0"
           style={{
             backgroundColor: 'rgba(13, 17, 23, 0.95)',
             borderBottom: '1px solid rgba(30, 45, 61, 0.3)',
@@ -477,7 +451,7 @@ export default function App() {
           }}
         >
           <SearchBar selectedStock={selectedStock} onSelectStock={handleSelectStock} />
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-shrink-0">
             {/* Data status indicator */}
             <DataStatusBadge
               status={headlineStatus}
@@ -491,7 +465,7 @@ export default function App() {
 
             {/* Exchange state */}
             {marketStatus && !demoMode && (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg"
+              <div className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded-lg"
                 style={{ backgroundColor: 'rgba(30, 45, 61, 0.2)' }}
                 title={marketStatus.calendar === 'nse' ? 'NSE holiday calendar loaded' : 'Exchange holidays are not detected (calendar unavailable); only weekends are'}>
                 <div className={`w-1.5 h-1.5 rounded-full ${marketStatus.isOpen ? 'bg-green-500' : marketStatus.isPreOpen ? 'bg-yellow-500' : 'bg-red-500'}`} />
@@ -502,13 +476,13 @@ export default function App() {
 
             {/* Data timestamp and last session */}
             {!demoMode && !noData && (
-              <span className="text-[10px] text-gray-600">
+              <span className="hidden xl:inline text-[10px] text-gray-600">
                 {dataAsOf ? `Data as of ${formatDataTime(dataAsOf)}` : lastUpdate ? `Fetched ${lastUpdate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}
                 {marketStatus?.lastSession ? ` · Last session ${formatSessionDate(marketStatus.lastSession)}` : ''}
               </span>
             )}
 
-            <div className="text-xs text-gray-600">
+            <div className="hidden xl:block text-xs text-gray-600">
               {today}
             </div>
           </div>

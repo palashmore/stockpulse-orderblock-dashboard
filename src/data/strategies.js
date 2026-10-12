@@ -19,6 +19,7 @@ export const SWING_DEFAULTS = {
   breakoutLookback: 20, relVolMin: 1.5, pullbackAtr: 0.5,
   weeklyFilter: true, allowShort: false, maxHoldBars: 30, cooldownBars: 5,
   pullback: true, breakout: true,
+  validBars: 3, // a setup may still be acted on this many daily bars after it fires
 };
 
 export const INTRADAY_DEFAULTS = {
@@ -30,6 +31,7 @@ export const INTRADAY_DEFAULTS = {
   maxTradesPerDay: 3, maxDailyLossR: 2, minAtrPct: 0.1, maxAtrPct: 2,
   allowShort: true, cooldownBars: 6,
   emaCross: true, openingRange: true,
+  validBars: 12, // a setup may still be acted on this many bars after it fires (12 x 5 min = 1 hour)
 };
 
 /** Limits for each numeric parameter, so a bad stored value can never break the engine. */
@@ -39,7 +41,7 @@ const LIMITS = {
   rsiPeriod: [2, 50], adxPeriod: [2, 50], adxMin: [0, 60], atrPeriod: [2, 50],
   stopAtr: [0.3, 6], target1R: [0.3, 10], target2R: [0.5, 20], minRR: [0.5, 10],
   breakoutLookback: [5, 100], relVolMin: [0, 10], pullbackAtr: [0, 3],
-  maxHoldBars: [1, 250], cooldownBars: [0, 50],
+  maxHoldBars: [1, 250], cooldownBars: [0, 50], validBars: [1, 100],
   htfMultiple: [2, 12], htfEma: [3, 100], orMinutes: [5, 60],
   entryStartMin: [540, 930], entryEndMin: [540, 930], exitMin: [540, 930],
   maxTradesPerDay: [1, 20], maxDailyLossR: [0.25, 20], minAtrPct: [0, 10], maxAtrPct: [0.1, 20],

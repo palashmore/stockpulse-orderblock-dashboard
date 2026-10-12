@@ -2,6 +2,7 @@ import { emaOfCloses, rsi, atr, adx, vwap, relativeVolume, priorHighLow } from '
 import { swingSignals } from './strategies';
 import { detectOrderBlocks } from './marketAnalysis';
 import { nearestBlocks } from './stockLists';
+import { evaluateSignal } from './signalLifecycle';
 
 // One row of the daily-analysis screener, computed from a stock's completed daily candles.
 // Everything is derived from those candles; a stock with too little or invalid history gets no row
@@ -68,6 +69,8 @@ export function screenerMetrics(candles) {
           strategy: recent.strategy, side: recent.side, time: recent.time, ageBars: n - 1 - recent.index,
           entry: recent.entry, stop: recent.stop, target1: recent.target1, target2: recent.target2, rr: recent.rr,
           confirmations: recent.confirmations.length,
+          // Whether it can still be acted on: not stopped, past a target, stretched or expired
+          ...(() => { const life = evaluateSignal(recent, done, { validBars: 3 }); return { status: life.status, actionable: life.actionable, label: life.label }; })(),
         }
       : null,
     orderBlocks: nearestBlocks(detectOrderBlocks(done), c.close, n),

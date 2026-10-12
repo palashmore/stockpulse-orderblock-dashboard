@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react';
 import { Star, RefreshCw } from 'lucide-react';
 import IndexSelect from './IndexSelect';
-import { useIndexStocks } from '../hooks/useIndexUniverse';
+import { useUniverseSelection, useUniverseStocks } from '../hooks/useUniverse';
 import { useQuotesBatch } from '../hooks/useQuotesBatch';
 import { useScreenerData, MAX_SCAN } from '../hooks/useScreenerData';
 import { useIntradayScan, MAX_INTRADAY_SCAN } from '../hooks/useIntradayScan';
 import { useWatchlist } from '../hooks/useWatchlist';
+import { WATCH_KINDS, WATCH_LABELS } from '../data/watchStore';
 import { moversFromQuotes, orderBlockList, swingSetupList, trendingList, intradayList } from '../data/stockLists';
 import { STATUS_META } from '../data/dataStatus';
+import { Opportunities, OrderFlow } from './OpportunityViews';
 
 const GREEN = '#00e676';
 const RED = '#ff1744';
@@ -17,7 +19,7 @@ const tone = (n) => (!Number.isFinite(n) || n === 0 ? '#9ca3af' : n > 0 ? GREEN 
 const vol = (v) => (!Number.isFinite(v) ? '—' : v >= 1e7 ? `${(v / 1e7).toFixed(2)} Cr` : v >= 1e5 ? `${(v / 1e5).toFixed(1)} L` : v.toLocaleString('en-IN'));
 const istClock = (t) => new Date(t * 1000).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
 
-const VIEWS = [['movers', 'Gainers · Losers · Volume'], ['blocks', 'Order blocks'], ['swing', 'Swing'], ['intraday', 'Intraday']];
+const VIEWS = [['opps', 'My Opportunities'], ['movers', 'Gainers · Losers · Volume'], ['blocks', 'Order blocks'], ['swing', 'Swing'], ['intraday', 'Intraday'], ['flow', 'Order flow & liquidity']];
 
 function Panel({ title, hint, count, children }) {
   return (
@@ -48,7 +50,7 @@ function Row({ r, watch, onOpen, target, cols }) {
   return (
     <tr onClick={() => onOpen({ symbol: r.symbol, name: r.name, sector: r.sector ?? '' }, target)} className="cursor-pointer hover:bg-white/5" style={{ borderTop: '1px solid rgba(30, 45, 61, 0.2)' }}>
       <td className="pl-2 w-8"><Star2 symbol={r.symbol} price={r.price} watch={watch} /></td>
-      <td className="px-2 py-1.5"><div className="font-medium text-gray-200 text-xs">{r.symbol}</div><div className="text-[10px] text-gray-600 truncate max-w-[10rem]">{r.name}</div></td>
+      <td className="px-2 py-1.5" title={r.indices ? r.indices.join(', ') : undefined}><div className="font-medium text-gray-200 text-xs">{r.symbol}</div><div className="text-[10px] text-gray-600 truncate max-w-[10rem]">{r.name}</div>{r.indices && r.indices.length > 0 && <div className="text-[9px] text-gray-700 truncate max-w-[10rem]">{r.indices.slice(0, 2).join(' · ')}{r.indices.length > 2 ? ` +${r.indices.length - 2}` : ''}</div>}</td>
       {cols.map((c, i) => <td key={i} className="px-2 py-1.5 text-right font-mono text-xs" style={{ color: c.color }}>{c.text}</td>)}
     </tr>
   );
@@ -74,7 +76,7 @@ function Movers({ stocks, watch, onOpen, active }) {
   const nameOf = useMemo(() => Object.fromEntries(stocks.map((s) => [s.symbol, s])), [stocks]);
   const m = useMemo(() => (result ? moversFromQuotes(result.quotes) : null), [result]);
   const status = STATUS_META[failed && !result ? 'UNAVAILABLE' : failed ? 'STALE' : result?.dataStatus] ?? STATUS_META.UNAVAILABLE;
-  const full = (q) => ({ ...q, name: nameOf[q.symbol]?.name ?? q.name, sector: nameOf[q.symbol]?.sector });
+  const full = (q) => ({ ...q, name: nameOf[q.symbol]?.name ?? q.name, sector: nameOf[q.symbol]?.sector, indices: nameOf[q.symbol]?.indices });
 
   if (!result && loading) return <Empty>Loading quotes for {symbols.length} stocks…</Empty>;
   if (!result) return <Empty>Quotes could not be loaded. Yahoo Finance may be blocked on this network. <button onClick={reload} className="underline cursor-pointer" style={{ color: '#00e5ff' }}>Retry</button></Empty>;
@@ -177,23 +179,31 @@ function SwingRow({ r, watch, onOpen }) {
       { text: px(s.entry), color: '#d1d5db' },
       { text: px(s.stop), color: RED },
       { text: `${px(s.target1)} / ${px(s.target2)}`, color: GREEN },
-      { text: s.ageBars === 0 ? 'last bar' : `${s.ageBars}d ago`, color: s.ageBars === 0 ? '#d1d5db' : '#9ca3af' },
+      { text: s.actionable ? (s.ageBars === 0 ? 'last bar' : `${s.ageBars}d ago`) : (s.label ?? 'not valid'), color: s.actionable ? '#9ca3af' : '#ffd600' },
     ]} />
   );
 }
 
 function Swing({ scan, watch, onOpen }) {
   const setups = useMemo(() => swingSetupList(scan.rows), [scan.rows]);
+  const past = useMemo(() => swingSetupList(scan.rows, { actionable: false }), [scan.rows]);
   const up = useMemo(() => trendingList(scan.rows, 'up'), [scan.rows]);
   const down = useMemo(() => trendingList(scan.rows, 'down'), [scan.rows]);
   const trendCols = (r) => [{ text: px(r.price), color: '#d1d5db' }, { text: r.adx.toFixed(0), color: '#d1d5db' }, { text: Number.isFinite(r.rsi) ? r.rsi.toFixed(0) : '—', color: '#d1d5db' }, { text: signed(r.vsEma20Pct), color: tone(r.vsEma20Pct) }];
   return (
     <>
-      <Panel title="Swing setups" hint="rules matched in the last 3 completed daily bars" count={setups.length}>
+      <Panel title="Swing setups" hint="valid setups from the last 3 completed daily bars" count={setups.length}>
         {setups.length === 0 ? <Empty>No stock has a fresh swing setup. That is common: the rules are strict and a long-only setup is rare in a falling market.</Empty> : (
           <Table head={['Price', 'Setup', 'Entry', 'Stop', 'Targets 1 / 2', 'Age']}>{setups.map((r) => <SwingRow key={r.symbol} r={r} watch={watch} onOpen={onOpen} />)}</Table>
         )}
       </Panel>
+      {past.length > 0 && (
+        <div className="mt-3">
+          <Panel title="Recent setups no longer valid" hint="stopped out, past a target, stretched or expired" count={past.length}>
+            <Table head={['Price', 'Setup', 'Entry', 'Stop', 'Targets 1 / 2', 'Age']}>{past.map((r) => <SwingRow key={r.symbol} r={r} watch={watch} onOpen={onOpen} />)}</Table>
+          </Panel>
+        </div>
+      )}
       <div className="grid gap-3 xl:grid-cols-2 mt-3">
         <Panel title="Strong uptrends" hint="ADX ≥ 25, price above rising 20/50-day averages" count={up.length}>
           {up.length === 0 ? <Empty>No stock is in a strong, aligned uptrend.</Empty> : <Table head={['Price', 'ADX', 'RSI', 'vs EMA20']}>{up.map((r) => <Row key={r.symbol} r={r} watch={watch} onOpen={onOpen} target="swing" cols={trendCols(r)} />)}</Table>}
@@ -210,40 +220,53 @@ function Swing({ scan, watch, onOpen }) {
   );
 }
 
+function IntradayRow({ r, watch, onOpen }) {
+  const s = r.latest;
+  const long = s.side === 'BUY';
+  return (
+    <Row r={r} watch={watch} onOpen={onOpen} target="intraday" cols={[
+      { text: px(r.price), color: '#d1d5db' },
+      { text: `${long ? 'BUY' : 'SHORT'} ${s.strategy}`, color: long ? GREEN : RED },
+      { text: px(s.entry), color: '#d1d5db' },
+      { text: px(s.stop), color: RED },
+      { text: `${px(s.target1)} / ${px(s.target2)}`, color: GREEN },
+      { text: istClock(s.time), color: '#9ca3af' },
+      { text: s.lifecycle?.actionable ? (s.ageBars === 0 ? 'last bar' : `${s.ageBars} bars`) : (s.lifecycle?.label ?? 'not valid'), color: s.lifecycle?.actionable ? '#9ca3af' : '#ffd600' },
+    ]} />
+  );
+}
+
 function Intraday({ scan, watch, onOpen, market }) {
-  const closed = market ? !market.isOpen : null;
-  // Open market: only signals from the last few bars are current. Closed: show the whole last session, for review
-  const list = useMemo(() => intradayList(scan.scans, closed === false ? 6 : Infinity), [scan.scans, closed]);
+  const marketOpen = market ? market.isOpen : null;
+  const stale = scan.scans.some((r) => r.dataStatus === 'STALE');
+  // A signal is shown as actionable only while the market is open, its data is not stale and the signal
+  // itself is still valid (not stopped, past a target, stretched, expired or from an earlier session).
+  const canAct = marketOpen === true;
+  const valid = useMemo(() => intradayList(scan.scans, { actionable: true }).filter((r) => r.dataStatus !== 'STALE'), [scan.scans]);
+  const rest = useMemo(() => intradayList(scan.scans, { actionable: false }), [scan.scans]);
+  const head = ['Price', 'Setup', 'Entry', 'Stop', 'Targets 1 / 2', 'Bar time (IST)', 'Status'];
+  const actionable = canAct ? valid : [];
+  const review = canAct ? rest : [...valid, ...rest];
   return (
     <>
-      {closed !== false && (
+      {!canAct && (
         <div className="mb-2 px-3 py-1.5 rounded text-[11px]" role="status" style={{ backgroundColor: 'rgba(255, 214, 0, 0.08)', color: '#ffd600', border: '1px solid rgba(255, 214, 0, 0.25)' }}>
-          {closed === null ? 'Market state unknown, so these signals are shown for review only.' : 'The market is closed. These are signals from the last session, shown for review, and are not actionable now.'}
+          {marketOpen === null ? 'Market state unknown, so every signal is shown for review only.' : 'The market is closed. Nothing here is actionable now; these are the last session’s signals, kept for review.'}
         </div>
       )}
-      <Panel title="Intraday signals" hint={closed === false ? 'newest 5-minute signal per stock, within 6 bars of its last completed bar' : 'newest 5-minute signal per stock from the last session'} count={list.length}>
-        {list.length === 0 ? <Empty>No stock has a recent intraday signal. Signals need a trend, VWAP, ADX, MACD and volume to agree, so most scans find few or none.</Empty> : (
-          <Table head={['Price', 'Setup', 'Entry', 'Stop', 'Targets 1 / 2', 'Bar time (IST)', 'Age']}>
-            {list.map((r) => {
-              const s = r.latest;
-              const long = s.side === 'BUY';
-              return (
-                <Row key={r.symbol} r={r} watch={watch} onOpen={onOpen} target="intraday" cols={[
-                  { text: px(r.price), color: '#d1d5db' },
-                  { text: `${long ? 'BUY' : 'SHORT'} ${s.strategy}`, color: long ? GREEN : RED },
-                  { text: px(s.entry), color: '#d1d5db' },
-                  { text: px(s.stop), color: RED },
-                  { text: `${px(s.target1)} / ${px(s.target2)}`, color: GREEN },
-                  { text: istClock(s.time), color: '#9ca3af' },
-                  { text: s.ageBars === 0 ? 'last bar' : `${s.ageBars} bars`, color: '#9ca3af' },
-                ]} />
-              );
-            })}
-          </Table>
+      {canAct && stale && <p className="mb-2 text-[11px]" style={{ color: '#ffd600' }}>Some stocks have stale data and are left out of the actionable list.</p>}
+      <Panel title="Actionable now" hint="valid, un-stopped signals on live-session data" count={actionable.length}>
+        {actionable.length === 0 ? <Empty>{canAct ? 'No stock has a valid intraday signal right now. Signals need a trend, VWAP, ADX, MACD and volume to agree, so most scans find few or none.' : 'None while the market is closed.'}</Empty> : (
+          <Table head={head}>{actionable.map((r) => <IntradayRow key={r.symbol} r={r} watch={watch} onOpen={onOpen} />)}</Table>
         )}
       </Panel>
+      <div className="mt-3">
+        <Panel title={canAct ? 'Recent signals no longer valid' : 'Last session (review)'} hint={canAct ? 'stopped out, past a target, stretched, expired or from an earlier session' : 'newest 5-minute signal per stock'} count={review.length}>
+          {review.length === 0 ? <Empty>None.</Empty> : <Table head={head}>{review.map((r) => <IntradayRow key={r.symbol} r={r} watch={watch} onOpen={onOpen} />)}</Table>}
+        </Panel>
+      </div>
       <p className="pt-2 text-[10px] text-gray-600">
-        Uses the Intraday tab&apos;s rules and saved settings on 5-minute candles (higher-timeframe trend, session VWAP, EMA cross or opening-range break, volume, daily trade cap).
+        Uses the Intraday tab&apos;s rules and saved settings on 5-minute candles. A signal stays valid for the number of bars set in that tab (default 12 = one hour) unless price hits its stop or a target, or runs more than half the risk away from the entry.
         Minute data comes from Yahoo Finance and can be delayed by about 15 minutes, so check the live price before acting. A match is a rule match, not a forecast.
       </p>
     </>
@@ -252,30 +275,39 @@ function Intraday({ scan, watch, onOpen, market }) {
 
 // Which stocks to look at next, from any NSE index: movers, order-block zones, swing setups and
 // intraday signals. Each list is a rule-based filter; none is advice to trade.
-export default function StockLists({ indexId, onIndexChange, onOpen, market }) {
-  const { stocks, label, failed, loading } = useIndexStocks(indexId);
-  const [view, setView] = useState('movers');
-  const watch = useWatchlist();
+export default function StockLists({ onOpen, market }) {
+  const selection = useUniverseSelection();
+  const { stocks, labels, failedIds, loading } = useUniverseStocks(selection.universe);
+  const failed = !loading && (!stocks || stocks.length === 0);
+  const [view, setView] = useState('opps');
+  const [starKind, setStarKind] = useState('daily');
+  const watch = useWatchlist(starKind);
+  const watchDaily = useWatchlist('daily'); // order flow always follows the Daily trading list
 
   const dailyStocks = useMemo(() => (stocks ? stocks.slice(0, MAX_SCAN) : []), [stocks]);
   const intradayStocks = useMemo(() => (stocks ? stocks.slice(0, MAX_INTRADAY_SCAN) : []), [stocks]);
-  const daily = useScreenerData(dailyStocks, view === 'blocks' || view === 'swing');
+  const daily = useScreenerData(dailyStocks, ['blocks', 'swing', 'opps', 'flow'].includes(view));
   const intraday = useIntradayScan(intradayStocks, view === 'intraday');
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto" style={{ backgroundColor: '#0a0e17' }}>
       <div className="flex flex-wrap items-center gap-2 px-4 py-2" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.3)' }}>
-        <IndexSelect value={indexId} onChange={onIndexChange} />
-        <span className="text-[11px] text-gray-500">{stocks ? `${stocks.length} stocks` : ''}</span>
+        <IndexSelect selection={selection} labels={labels} count={stocks ? stocks.length : null} />
         <div className="flex-1" />
+        <label className="flex items-center gap-1.5 text-[10px] text-gray-500 uppercase tracking-wider">Star adds to
+          <select value={starKind} onChange={(e) => setStarKind(e.target.value)} aria-label="Watchlist for stars" className="px-2 py-1 text-xs rounded text-gray-200 border border-gray-700 outline-none normal-case tracking-normal" style={{ backgroundColor: '#0d1117' }}>
+            {WATCH_KINDS.map((k) => <option key={k} value={k}>{WATCH_LABELS[k]}</option>)}
+          </select>
+        </label>
         {VIEWS.map(([id, text]) => (
           <button key={id} onClick={() => setView(id)} className={`px-3 py-1 text-xs rounded cursor-pointer ${view === id ? 'bg-green-500/15 text-green-400' : 'text-gray-500 hover:text-gray-300'}`}>{text}</button>
         ))}
       </div>
 
       <div className="px-4 py-3">
-        {loading && <Empty>Loading the {indexId} list…</Empty>}
-        {failed && <Empty>The index list could not be loaded. NSE&apos;s file may be unreachable from this network. Try another index or retry.</Empty>}
+        {loading && <Empty>Loading the selected index lists…</Empty>}
+        {failedIds.length > 0 && <p className="mb-2 text-[11px]" style={{ color: '#ffd600' }}>These indices could not be loaded and are left out: {failedIds.join(', ')}. NSE&apos;s file may be unreachable from this network.</p>}
+        {failed && <Empty>No stocks to show. Pick an index or add custom symbols.</Empty>}
         {stocks && stocks.length > 0 && (
           <>
             {view === 'movers' && <Movers stocks={stocks} watch={watch} onOpen={onOpen} active />}
@@ -291,6 +323,18 @@ export default function StockLists({ indexId, onIndexChange, onOpen, market }) {
                 <Swing scan={daily} watch={watch} onOpen={onOpen} />
               </>
             )}
+            {view === 'opps' && (
+              <>
+                <Progress {...daily} excluded={daily.excluded} truncated={stocks.length > MAX_SCAN} limit={MAX_SCAN} universe={stocks.length} reload={daily.reload} />
+                <Opportunities scan={daily} watch={watch} onOpen={onOpen} lastSession={market?.lastSession ?? null} />
+              </>
+            )}
+            {view === 'flow' && (
+              <>
+                <Progress {...daily} excluded={daily.excluded} truncated={stocks.length > MAX_SCAN} limit={MAX_SCAN} universe={stocks.length} reload={daily.reload} />
+                <OrderFlow scan={daily} watch={watchDaily} onOpen={onOpen} marketOpen={market ? market.isOpen : null} />
+              </>
+            )}
             {view === 'intraday' && (
               <>
                 <Progress {...intraday} excluded={intraday.excluded} truncated={stocks.length > MAX_INTRADAY_SCAN} limit={MAX_INTRADAY_SCAN} universe={stocks.length} reload={intraday.reload} />
@@ -300,8 +344,8 @@ export default function StockLists({ indexId, onIndexChange, onOpen, market }) {
           </>
         )}
         <p className="pt-4 text-[10px] text-gray-600">
-          {label ? `${label}: ` : ''}index membership is NSE Indices&apos; official list (refreshed daily). Sensex and other BSE indices are not available because BSE blocks automated access.
-          Star a stock to add it to My Watchlist. These lists describe rule matches on past data and are not buy or sell recommendations.
+          Index membership is NSE Indices&apos; official list (refreshed daily); a stock in several selected indices appears once. Sensex and other BSE indices are not available because BSE blocks automated access.
+          Star a stock to add it to your Daily trading or Swing watchlist (chosen at the top). These lists describe rule matches on past data and are not buy or sell recommendations.
         </p>
       </div>
     </div>

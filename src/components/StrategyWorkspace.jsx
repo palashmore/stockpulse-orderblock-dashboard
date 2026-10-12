@@ -8,6 +8,7 @@ import { backtest, COSTS_DEFAULTS } from '../data/backtest';
 import { dropFormingBar, dayRisk, entryGate, positionSize } from '../data/strategyGate';
 import { loadStrategyConfig, saveStrategyConfig, loadSlippage, SLIPPAGE_KEY } from '../data/strategyStore';
 import { STATUS_META } from '../data/dataStatus';
+import { evaluateSignal } from '../data/signalLifecycle';
 
 const MODES = {
   swing: {
@@ -20,7 +21,7 @@ const MODES = {
     fields: [
       ['capital', 'Capital (₹)'], ['riskPct', 'Risk per trade (%)'], ['stopAtr', 'Stop (× ATR)'], ['target1R', 'Target 1 (R)'], ['target2R', 'Target 2 (R)'],
       ['minRR', 'Min room to level (R)'], ['adxMin', 'Min ADX'], ['relVolMin', 'Breakout rel. volume'], ['breakoutLookback', 'Breakout look-back (bars)'],
-      ['pullbackAtr', 'Pullback tolerance (× ATR)'], ['maxHoldBars', 'Max hold (bars)'], ['cooldownBars', 'Cool-down (bars)'],
+      ['pullbackAtr', 'Pullback tolerance (× ATR)'], ['maxHoldBars', 'Max hold (bars)'], ['cooldownBars', 'Cool-down (bars)'], ['validBars', 'Signal valid for (bars)'],
       ['weeklyFilter', 'Require weekly trend'], ['allowShort', 'Allow short setups'], ['pullback', 'Pullback setup'], ['breakout', 'Breakout setup'],
     ],
   },
@@ -40,7 +41,7 @@ const MODES = {
       ['adxMin', 'Min ADX'], ['relVolMin', 'Min rel. volume'], ['htfMultiple', 'Higher TF (× bars)'], ['htfEma', 'Higher TF EMA'], ['orMinutes', 'Opening range (min)'],
       ['entryStartMin', 'Entries from (min of day)'], ['entryEndMin', 'Entries until (min of day)'], ['exitMin', 'Exit by (min of day)'],
       ['maxTradesPerDay', 'Max trades / day'], ['maxDailyLossR', 'Max daily loss (R)'], ['minAtrPct', 'Min ATR (% of price)'], ['maxAtrPct', 'Max ATR (% of price)'],
-      ['cooldownBars', 'Cool-down (bars)'], ['allowShort', 'Allow short setups'], ['emaCross', 'EMA cross setup'], ['openingRange', 'Opening-range setup'],
+      ['cooldownBars', 'Cool-down (bars)'], ['validBars', 'Signal valid for (bars)'], ['allowShort', 'Allow short setups'], ['emaCross', 'EMA cross setup'], ['openingRange', 'Opening-range setup'],
     ],
   },
 };
@@ -137,9 +138,14 @@ export default function StrategyWorkspace({ mode, selectedStock, demoMode }) {
 
   const risk = useMemo(() => (mode === 'intraday' ? dayRisk(result.trades, analysis, config) : null), [mode, result.trades, analysis, config]);
   const gate = entryGate({ mode, dataStatus: history?.dataStatus, marketOpen: market ? market.isOpen : null, risk, config });
-  const lastIndex = analysis.length - 1;
-  const active = signals.filter((s) => s.index >= lastIndex - 1);
+  // What has happened to each signal since it fired: only a signal that is still valid can be 'active'
+  const lifecycles = useMemo(
+    () => new Map(signals.map((s) => [s.id, evaluateSignal(s, analysis, { validBars: config.validBars, intraday: mode === 'intraday' })])),
+    [signals, analysis, config.validBars, mode]
+  );
+  const active = signals.filter((s) => lifecycles.get(s.id)?.actionable);
   const selected = signals.find((s) => s.id === selectedId) ?? active.at(-1) ?? signals.at(-1) ?? null;
+  const selectedLife = selected ? lifecycles.get(selected.id) : null;
   const outcomeOf = (id) => result.trades.find((t) => t.signalId === id) ?? null;
 
   const updateConfig = (key, value) => {
@@ -214,12 +220,13 @@ export default function StrategyWorkspace({ mode, selectedStock, demoMode }) {
               <>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-sm font-semibold" style={{ color: selected.side === 'BUY' ? GREEN : RED }}>{selected.side === 'BUY' ? 'BUY' : 'SELL SHORT'} · {selected.strategy}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ backgroundColor: 'rgba(30,45,61,0.5)', color: active.includes(selected) && gate.actionable ? GREEN : '#94a3b8' }}>
-                    {active.includes(selected) ? (gate.actionable ? 'ACTIVE' : 'NOT ACTIONABLE') : 'PAST'}
+                  <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ backgroundColor: 'rgba(30,45,61,0.5)', color: selectedLife?.actionable && gate.actionable ? GREEN : '#94a3b8' }} title={selectedLife?.actionable && !gate.actionable ? gate.reasons.join('; ') : undefined}>
+                    {selectedLife?.actionable ? (gate.actionable ? 'ACTIVE' : 'NOT ACTIONABLE NOW') : (selectedLife?.label ?? 'PAST').toUpperCase()}
                   </span>
                 </div>
                 <Row label="Strategy / timeframe" value={`${mode} ${selected.strategy} · ${frame.label}`} />
-                <Row label="Signal bar" value={formatTime(selected.time)} />
+                <Row label="Signal bar" value={`${formatTime(selected.time)}${Number.isFinite(selectedLife?.ageBars) ? ` (${selectedLife.ageBars} bars ago)` : ''}`} />
+                {selectedLife && !selectedLife.actionable && selectedLife.resolvedAt !== null && <Row label={selectedLife.label} value={formatTime(selectedLife.resolvedAt)} color={selectedLife.status === 'STOPPED' ? RED : '#94a3b8'} />}
                 <Row label="Entry zone" value={`${px(selected.entryZone[0])} – ${px(selected.entryZone[1])}`} />
                 <Row label="Stop-loss" value={px(selected.stop)} color={RED} />
                 <Row label="Target 1" value={`${px(selected.target1)} (${num(config.target1R, 1)}R)`} color={GREEN} />

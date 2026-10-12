@@ -119,7 +119,7 @@ export default function MultiChart({ initialSymbol }) {
   const [expanded, setExpanded] = useState(null);
   const [storageOk, setStorageOk] = useState(true);
   const watch = useWatchlist();
-  const quick = useMemo(() => [...watch.symbols].slice(0, 12), [watch.symbols]);
+  const quick = useMemo(() => [...watch.allSymbols].slice(0, 12), [watch.allSymbols]);
 
   const update = (next) => {
     setLayout(next);

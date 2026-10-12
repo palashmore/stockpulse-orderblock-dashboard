@@ -74,9 +74,13 @@ describe('list builders', () => {
     expect(orderBlockList(rows, 'demand', 10).map((r) => r.symbol)).toContain('FAR');
   });
 
-  it('swingSetupList shows recent setups, newest first', () => {
-    const rows = [row('OLD', { swing: { ageBars: 2 } }), row('NEW', { swing: { ageBars: 0 } }), row('NONE', { swing: null })];
+  it('swingSetupList shows valid setups newest first, and the no-longer-valid ones on request', () => {
+    const rows = [
+      row('OLD', { swing: { ageBars: 2, actionable: true } }), row('NEW', { swing: { ageBars: 0, actionable: true } }),
+      row('STOPPED', { swing: { ageBars: 1, actionable: false, status: 'STOPPED' } }), row('NONE', { swing: null }),
+    ];
     expect(swingSetupList(rows).map((r) => r.symbol)).toEqual(['NEW', 'OLD']);
+    expect(swingSetupList(rows, { actionable: false }).map((r) => r.symbol)).toEqual(['STOPPED']);
   });
 
   it('trendingList needs ADX, EMA order and DI to agree, strongest first', () => {
@@ -88,9 +92,14 @@ describe('list builders', () => {
     expect(trendingList(rows, 'down').map((r) => r.symbol)).toEqual(['E']);
   });
 
-  it('intradayList keeps signals that are recent enough, newest first', () => {
-    const scans = [{ symbol: 'A', latest: { ageBars: 4 } }, { symbol: 'B', latest: { ageBars: 0 } }, { symbol: 'C', latest: { ageBars: 30 } }, { symbol: 'D', latest: null }];
+  it('intradayList separates still-valid signals from expired, stopped and past-session ones', () => {
+    const life = (actionable) => ({ actionable });
+    const scans = [
+      { symbol: 'A', latest: { ageBars: 4, lifecycle: life(true) } }, { symbol: 'B', latest: { ageBars: 0, lifecycle: life(true) } },
+      { symbol: 'C', latest: { ageBars: 30, lifecycle: life(false) } }, { symbol: 'D', latest: null }, { symbol: 'E', latest: { ageBars: 2 } },
+    ];
     expect(intradayList(scans).map((s) => s.symbol)).toEqual(['B', 'A']);
+    expect(intradayList(scans, { actionable: false }).map((s) => s.symbol)).toEqual(['E', 'C']);
   });
 });
 
@@ -125,6 +134,8 @@ describe('screenerMetrics extensions', () => {
         expect(m.swing.ageBars).toBeGreaterThanOrEqual(0);
         expect(m.swing.ageBars).toBeLessThanOrEqual(2);
         expect(m.swing.stop).toBeLessThan(m.swing.entry);
+        expect(typeof m.swing.actionable).toBe('boolean');
+        expect(m.swing.status).toBeTruthy();
       }
       if (m.setup) expect(m.swing.ageBars).toBe(0); // a setup on the last bar is always the newest recent one
     }

@@ -1,4 +1,12 @@
-export const API_BASE = 'http://localhost:3001/api';
+// The API lives on port 3001 of whatever host served this page, so the app also works when opened from a
+// phone on the same network. VITE_API_BASE overrides it (for example for a hosted server).
+export function resolveApiBase(env = {}, location = null) {
+  if (env.VITE_API_BASE) return String(env.VITE_API_BASE).replace(/\/$/, '');
+  if (location && /^https?:$/.test(location.protocol) && location.hostname) return `${location.protocol}//${location.hostname}:3001/api`;
+  return 'http://localhost:3001/api';
+}
+
+export const API_BASE = resolveApiBase(import.meta.env, typeof window !== 'undefined' ? window.location : null);
 
 // Helper to make API calls with timeout and error handling.
 // Resolves to { data, headers } on success, null on any failure.
@@ -164,4 +172,9 @@ function mergeQuoteParts(parts) {
     provider: parts[0].provider,
     partial: parts.length > 1 && parts.some((p) => p.dataStatus !== parts[0].dataStatus),
   };
+}
+
+// Depth for up to 10 symbols (broker live feed). Resolves { depths: [...] } or null.
+export async function fetchDepths(symbols) {
+  return await apiFetch(`/depth?symbols=${symbols.map(encodeURIComponent).join(',')}`);
 }

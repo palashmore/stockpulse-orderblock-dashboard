@@ -206,6 +206,16 @@ describe('/api/broker endpoints', () => {
     expect(body.error).toMatch(/503/);
   });
 
+  it('depth for several symbols reports each one separately, and rejects bad lists', async () => {
+    await start({ reply: () => ({ status: 200, json: { Success: [] } }) });
+    const { body } = await get('/depth?symbols=RELIANCE,NOPE');
+    expect(body.depths.map((d) => d.symbol)).toEqual(['RELIANCE', 'NOPE']);
+    expect(body.depths.every((d) => d.available === false && typeof d.reason === 'string')).toBe(true);
+    expect((await get('/depth')).res.status).toBe(400);
+    expect((await get('/depth?symbols=bad%20sym')).res.status).toBe(400);
+    expect((await get(`/depth?symbols=${Array.from({ length: 11 }, (_, i) => `A${i}`).join(',')}`)).res.status).toBe(400);
+  });
+
   it('exposes no endpoint that places, changes or cancels an order', async () => {
     await start({ reply: () => ({ status: 200, json: { Success: [] } }) });
     for (const [method, path] of [['POST', '/broker/orders'], ['PUT', '/broker/orders'], ['DELETE', '/broker/orders'], ['POST', '/broker/order']]) {

@@ -9,8 +9,8 @@ export function DataStatusBadge({ status, loading, detail }) {
       title={meta ? describeStatus({ status, ...detail }) : 'Connecting to market data'}
     >
       <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: meta?.color ?? '#64748b' }} />
-      <span className="text-xs text-gray-400">NSE</span>
-      <span className="text-xs text-gray-600">|</span>
+      <span className="hidden sm:inline text-xs text-gray-400">NSE</span>
+      <span className="hidden sm:inline text-xs text-gray-600">|</span>
       <span className="text-xs" style={{ color: meta?.color ?? '#64748b' }}>
         {meta ? meta.label : 'CONNECTING'}
       </span>

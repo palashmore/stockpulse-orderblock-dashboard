@@ -3,6 +3,7 @@ import { fetchHistory } from '../services/api';
 import { intradaySignals } from '../data/strategies';
 import { dropFormingBar } from '../data/strategyGate';
 import { loadStrategyConfig } from '../data/strategyStore';
+import { evaluateSignal } from '../data/signalLifecycle';
 
 const CONCURRENCY = 4;
 const FRAME_MS = 300000; // 5-minute candles
@@ -58,7 +59,7 @@ export function useIntradayScan(stocks, enabled) {
             asOf: h.asOf,
             dataStatus: h.dataStatus,
             sessionSignals: sigs.length,
-            latest: s ? { ...s, ageBars: usable.length - 1 - s.index } : null,
+            latest: s ? { ...s, ageBars: usable.length - 1 - s.index, lifecycle: evaluateSignal(s, usable, { validBars: config.validBars, intraday: true }) } : null,
           });
         }
         done++;

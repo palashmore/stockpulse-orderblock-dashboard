@@ -143,3 +143,10 @@
     background-size: 40px 40px;
   }
 }
+
+
+/* Phones: the bottom navigation bar takes 56px (plus the device's safe area) at the foot of the page */
+:root { --mobile-nav: calc(56px + env(safe-area-inset-bottom)); }
+@media (min-width: 768px) { :root { --mobile-nav: 0px; } }
+html { -webkit-text-size-adjust: 100%; }
+body { overscroll-behavior-y: none; }

@@ -1,0 +1,23 @@
+{
+  "name": "StockPulse - Market Analysis",
+  "short_name": "StockPulse",
+  "description": "NSE stock lists, signals, charts and your ICICI Direct portfolio (read-only).",
+  "id": "/",
+  "start_url": "/?tab=lists&source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0e17",
+  "theme_color": "#0a0e17",
+  "categories": ["finance", "business"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Stock Lists", "url": "/?tab=lists&source=pwa", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Intraday", "url": "/?tab=intraday&source=pwa", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Watchlist", "url": "/?tab=watchlist&source=pwa", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
