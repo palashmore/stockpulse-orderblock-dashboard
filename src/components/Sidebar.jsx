@@ -16,10 +16,12 @@ import {
   CandlestickChart,
   FileSearch,
   ListChecks,
+  Target,
 } from 'lucide-react';
 
 const menuItems = [
   { icon: Home, label: 'Dashboard', id: 'dashboard' },
+  { icon: Target, label: 'Stock Lists', id: 'lists' },
   { icon: Activity, label: 'Order Blocks', id: 'orderblock' },
   { icon: Zap, label: 'Intraday', id: 'intraday' },
   { icon: CandlestickChart, label: 'Swing', id: 'swing' },
@@ -38,7 +40,11 @@ const bottomItems = [
   { icon: Settings, label: 'Settings', id: 'settings' },
 ];
 
-export default function Sidebar({ activeTab, onTabChange }) {
+// Every screen id in the sidebar. App uses this list to accept ?tab= links, so a link can never silently
+// fall back to another screen because a new tab was added to the menu but not to a separate list.
+export const TAB_IDS = [...menuItems, ...bottomItems].map((item) => item.id);
+
+export default function Sidebar({ activeTab, onTabChange, marketLabel = null, marketOpen = null }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -110,9 +116,9 @@ export default function Sidebar({ activeTab, onTabChange }) {
       <div className="flex flex-col gap-1 px-2 pb-4">
         {/* Market status indicator */}
         <div className="flex items-center gap-2 px-2 py-2">
-          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
+          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${marketOpen === true ? 'bg-green-500 animate-pulse' : marketOpen === false ? 'bg-red-500' : 'bg-gray-500'}`} />
           {expanded && (
-            <span className="text-xs text-gray-500">Market Open</span>
+            <span className="text-xs text-gray-500">{marketLabel ?? 'Market status unknown'}</span>
           )}
         </div>
         {bottomItems.map((item) => {

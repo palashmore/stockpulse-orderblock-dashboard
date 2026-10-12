@@ -11,7 +11,8 @@ const STALE_STATUSES = new Set(['STALE', 'UNAVAILABLE', 'SIMULATED']);
  * little history, are counted in `excluded` and never shown with guessed values.
  * Results are kept for `ttlMs` so switching tabs does not reload everything.
  */
-const cache = { at: 0, key: '', rows: [], excluded: [] };
+const cache = new Map(); // universe key -> { at, rows, excluded }
+export const MAX_SCAN = 250;
 const TTL_MS = 10 * 60 * 1000;
 
 export function useScreenerData(stocks, enabled) {
@@ -21,8 +22,9 @@ export function useScreenerData(stocks, enabled) {
 
   const load = useCallback(async (force = false) => {
     if (!stocks.length) return;
-    if (!force && cache.key === key && Date.now() - cache.at < TTL_MS) {
-      setState({ rows: cache.rows, excluded: cache.excluded, done: stocks.length, total: stocks.length, loading: false, loadedAt: cache.at });
+    const hit = cache.get(key);
+    if (!force && hit && Date.now() - hit.at < TTL_MS) {
+      setState({ rows: hit.rows, excluded: hit.excluded, done: stocks.length, total: stocks.length, loading: false, loadedAt: hit.at });
       return;
     }
     const id = ++runId.current;
@@ -50,11 +52,10 @@ export function useScreenerData(stocks, enabled) {
     };
     await Promise.all(Array.from({ length: CONCURRENCY }, worker));
     if (id !== runId.current) return;
-    cache.at = Date.now();
-    cache.key = key;
-    cache.rows = rows;
-    cache.excluded = excluded;
-    setState({ rows, excluded, done: stocks.length, total: stocks.length, loading: false, loadedAt: cache.at });
+    const at = Date.now();
+    cache.set(key, { at, rows, excluded });
+    if (cache.size > 6) cache.delete(cache.keys().next().value);
+    setState({ rows, excluded, done: stocks.length, total: stocks.length, loading: false, loadedAt: at });
   }, [stocks, key]);
 
   useEffect(() => {

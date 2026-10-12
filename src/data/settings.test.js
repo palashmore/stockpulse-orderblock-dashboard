@@ -15,18 +15,27 @@ describe('chart indicator settings', () => {
   });
 });
 
+describe('selected index', () => {
+  it('keeps a well-formed index id and falls back to Nifty 50 otherwise', () => {
+    expect(validateSettings({ index: 'midcap100' }).index).toBe('midcap100');
+    expect(validateSettings({ index: 'Bad Value!' }).index).toBe('nifty50');
+    expect(validateSettings({ index: 5 }).index).toBe('nifty50');
+    expect(validateSettings({}).index).toBe('nifty50');
+  });
+});
+
 describe('settings', () => {
   it('falls back to defaults field by field for invalid values', () => {
     expect(validateSettings(null)).toEqual(DEFAULT_SETTINGS);
     expect(validateSettings({ defaultTimeframe: '7m', startTab: 'nope', hideAmounts: 'yes' })).toEqual(DEFAULT_SETTINGS);
-    expect(validateSettings({ defaultTimeframe: '5m', startTab: 'screener', hideAmounts: false })).toEqual({ defaultTimeframe: '5m', startTab: 'screener', hideAmounts: false, chartIndicators: DEFAULT_SETTINGS.chartIndicators });
+    expect(validateSettings({ defaultTimeframe: '5m', startTab: 'screener', hideAmounts: false })).toEqual({ defaultTimeframe: '5m', startTab: 'screener', hideAmounts: false, chartIndicators: DEFAULT_SETTINGS.chartIndicators, index: 'nifty50' });
     expect(validateSettings({ defaultTimeframe: '5m', startTab: 'x' })).toMatchObject({ defaultTimeframe: '5m', startTab: 'orderblock' });
   });
 
   it('round-trips and survives corrupt or unavailable storage', () => {
     const s = memory();
     expect(saveSettings({ defaultTimeframe: '15m', startTab: 'scanner', hideAmounts: false }, s)).toBe(true);
-    expect(loadSettings(s)).toEqual({ defaultTimeframe: '15m', startTab: 'scanner', hideAmounts: false, chartIndicators: DEFAULT_SETTINGS.chartIndicators });
+    expect(loadSettings(s)).toEqual({ defaultTimeframe: '15m', startTab: 'scanner', hideAmounts: false, chartIndicators: DEFAULT_SETTINGS.chartIndicators, index: 'nifty50' });
     expect(loadSettings(memory('{not json'))).toEqual(DEFAULT_SETTINGS);
     expect(loadSettings(memory())).toEqual(DEFAULT_SETTINGS);
     const broken = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('full'); } };

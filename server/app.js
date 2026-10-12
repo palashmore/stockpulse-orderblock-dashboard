@@ -19,6 +19,7 @@ import {
 } from './brokerBooks.js';
 import { depthKey } from './breezeStream.js';
 import { istDateKey } from './marketCalendar.js';
+import { INDEX_DEFS, INDEX_BASE, indexDef, parseIndexCsv, MAX_SYMBOLS_PER_REQUEST } from './indices.js';
 import { BREEZE_STOCK_CODES } from './breezeCodes.js';
 import { createStreamHub, quoteKey } from './breezeStream.js';
 import { parseNseHolidays, getMarketState, markPartialCandles } from './marketCalendar.js';
@@ -50,6 +51,8 @@ const POLICY = {
   options: { ttl: 60 * 1000, maxStale: 30 * MINUTE },
   holidays: { ttl: 12 * 60 * MINUTE },
   history: { ttl: 5 * MINUTE, maxStale: 24 * 60 * MINUTE },
+  indexList: { ttl: 24 * 60 * MINUTE, maxStale: 7 * 24 * 60 * MINUTE },
+  quotesBatch: { ttl: 45 * 1000, maxStale: 15 * MINUTE },
   historyIntraday: { ttl: 60 * 1000, maxStale: 60 * MINUTE },
 };
 
@@ -966,6 +969,82 @@ export function createApp({
         liveSubscribers.delete(symbol);
         streamHub.unsubscribe(key);
       } else liveSubscribers.set(symbol, left);
+    });
+  });
+
+  // ---- index lists: which stocks belong to Nifty 50, Midcap, Smallcap, sector indices and so on
+  app.get('/api/indices', (req, res) => {
+    res.json(INDEX_DEFS.map(({ id, label, group }) => ({ id, label, group })));
+  });
+
+  app.get('/api/indices/:id', async (req, res) => {
+    const def = indexDef(req.params.id);
+    if (!def) return res.status(404).json({ error: 'Unknown index', dataStatus: DATA_STATUS.UNAVAILABLE });
+    await serve(res, 'Index list', {
+      key: `index_${def.id}`,
+      policy: POLICY.indexList,
+      load: async () => {
+        const response = await fetchFn(`${INDEX_BASE}/ind_${def.file}list.csv`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(15000) });
+        if (!response.ok) throw new Error(`NSE index file HTTP ${response.status}`);
+        const stocks = parseIndexCsv(await response.text());
+        return {
+          body: { id: def.id, label: def.label, group: def.group, count: stocks.length, stocks },
+          status: DATA_STATUS.HISTORICAL, // a membership list, not a price: labelled as reference data
+          provider: 'NSE Indices (niftyindices.com)',
+          fetchedAt: new Date(now()).toISOString(),
+          asOf: null,
+        };
+      },
+    });
+  });
+
+  // ---- quotes for any list of NSE symbols (an index, a watchlist). Yahoo is asked in chunks of 50.
+  app.get('/api/quotes', async (req, res) => {
+    const symbols = [...new Set(String(req.query.symbols || '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean))];
+    if (symbols.length === 0) return res.status(400).json({ error: 'No symbols given', dataStatus: DATA_STATUS.UNAVAILABLE });
+    if (symbols.length > MAX_SYMBOLS_PER_REQUEST || !symbols.every(isValidSymbol)) {
+      return res.status(400).json({ error: `Send up to ${MAX_SYMBOLS_PER_REQUEST} valid symbols`, dataStatus: DATA_STATUS.UNAVAILABLE });
+    }
+    symbols.sort();
+    await serve(res, 'Quotes', {
+      key: `quotes_${symbols.join(',')}`,
+      policy: POLICY.quotesBatch,
+      load: async () => {
+        const results = [];
+        for (let i = 0; i < symbols.length; i += 50) {
+          const chunk = symbols.slice(i, i + 50).map((s) => encodeURIComponent(`${s}.NS`)).join(',');
+          const data = await yahooQuotes(chunk);
+          results.push(...(data.quoteResponse?.result || []));
+        }
+        const valid = results.filter((q) => Number.isFinite(q.regularMarketPrice));
+        if (valid.length === 0) throw new Error('No valid quotes in provider response');
+        const quotes = valid.map((q) => ({
+          symbol: (q.symbol || '').replace('.NS', ''),
+          name: q.longName || q.shortName || q.symbol,
+          price: q.regularMarketPrice,
+          change: q.regularMarketChange,
+          changePct: q.regularMarketChangePercent,
+          volume: q.regularMarketVolume,
+          avgVolume: q.averageDailyVolume3Month,
+          open: q.regularMarketOpen,
+          high: q.regularMarketDayHigh,
+          low: q.regularMarketDayLow,
+          previousClose: q.regularMarketPreviousClose,
+          marketCap: q.marketCap,
+          marketState: q.marketState,
+        }));
+        const have = new Set(quotes.map((q) => q.symbol));
+        const times = valid.map((q) => q.regularMarketTime).filter(Number.isFinite);
+        const quoteTimeMs = times.length ? Math.max(...times) * 1000 : null;
+        const nowMs = now();
+        return {
+          body: { quotes, missing: symbols.filter((s) => !have.has(s)) },
+          status: classifyQuoteStatus({ marketState: valid[0].marketState, quoteTimeMs, nowMs, market: marketAt(nowMs) }),
+          provider: 'Yahoo Finance',
+          fetchedAt: new Date(nowMs).toISOString(),
+          asOf: quoteTimeMs === null ? null : new Date(quoteTimeMs).toISOString(),
+        };
+      },
     });
   });
 

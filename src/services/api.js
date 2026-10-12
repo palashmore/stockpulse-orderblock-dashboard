@@ -130,3 +130,38 @@ export async function fetchBroker(path) {
     return { error: 'Could not reach the server' };
   }
 }
+
+// Index lists (Nifty 50, Midcap, Smallcap, sectors...) and quotes for any list of symbols
+export async function fetchIndices() {
+  return await apiFetch('/indices');
+}
+
+export async function fetchIndexStocks(id) {
+  const data = await apiFetch(`/indices/${encodeURIComponent(id)}`);
+  return data?.stocks ? data : null;
+}
+
+// Resolves { quotes, missing, dataStatus, asOf, provider } or null. Symbols are sent in requests of up to 250.
+export async function fetchQuotes(symbols) {
+  const unique = [...new Set(symbols)];
+  const parts = [];
+  for (let i = 0; i < unique.length; i += 250) {
+    const part = await apiFetch(`/quotes?symbols=${unique.slice(i, i + 250).map(encodeURIComponent).join(',')}`);
+    if (!part) return parts.length ? mergeQuoteParts(parts) : null;
+    parts.push(part);
+  }
+  return parts.length ? mergeQuoteParts(parts) : null;
+}
+
+function mergeQuoteParts(parts) {
+  const order = ['UNAVAILABLE', 'STALE', 'SIMULATED', 'HISTORICAL', 'MARKET_CLOSED', 'DELAYED', 'LIVE'];
+  const worst = parts.map((p) => p.dataStatus).sort((a, b) => order.indexOf(a) - order.indexOf(b))[0];
+  return {
+    quotes: parts.flatMap((p) => p.quotes),
+    missing: parts.flatMap((p) => p.missing ?? []),
+    dataStatus: worst,
+    asOf: parts.map((p) => p.asOf).filter(Boolean).sort().at(-1) ?? null,
+    provider: parts[0].provider,
+    partial: parts.length > 1 && parts.some((p) => p.dataStatus !== parts[0].dataStatus),
+  };
+}

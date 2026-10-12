@@ -1,5 +1,7 @@
 import { emaOfCloses, rsi, atr, adx, vwap, relativeVolume, priorHighLow } from './indicators';
 import { swingSignals } from './strategies';
+import { detectOrderBlocks } from './marketAnalysis';
+import { nearestBlocks } from './stockLists';
 
 // One row of the daily-analysis screener, computed from a stock's completed daily candles.
 // Everything is derived from those candles; a stock with too little or invalid history gets no row
@@ -34,7 +36,10 @@ export function screenerMetrics(candles) {
   const avgVol = vols.length === 20 ? vols.reduce((s, x) => s + x.volume, 0) / 20 : null;
 
   // Swing setups use the default swing rules, so this column agrees with the Swing workspace
-  const sig = swingSignals(done).find((s) => s.index === n - 1) ?? null;
+  const all = swingSignals(done);
+  const sig = all.find((s) => s.index === n - 1) ?? null;
+  // The newest setup within the last 3 daily bars (age 0 = the last completed bar)
+  const recent = all.filter((s) => s.index >= n - 3).at(-1) ?? null;
 
   let trend = 'mixed';
   if (c.close > e20 && e20 > e50) trend = 'up';
@@ -58,5 +63,13 @@ export function screenerMetrics(candles) {
     turnoverCr: avgVol === null ? null : (avgVol * c.close) / 1e7,
     setup: sig ? sig.strategy : null,
     setupSide: sig ? sig.side : null,
+    swing: recent
+      ? {
+          strategy: recent.strategy, side: recent.side, time: recent.time, ageBars: n - 1 - recent.index,
+          entry: recent.entry, stop: recent.stop, target1: recent.target1, target2: recent.target2, rr: recent.rr,
+          confirmations: recent.confirmations.length,
+        }
+      : null,
+    orderBlocks: nearestBlocks(detectOrderBlocks(done), c.close, n),
   };
 }

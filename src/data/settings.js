@@ -6,13 +6,14 @@ import { OVERLAYS, PANES, DEFAULT_INDICATORS } from './chartConfig';
 // outdated entry falls back to defaults field by field instead of breaking the app.
 export const SETTINGS_KEY = 'stockpulse.settings.v1';
 
-export const START_TABS = ['orderblock', 'intraday', 'swing', 'analysis', 'dashboard', 'books', 'screener', 'scanner', 'watchlist', 'alerts', 'portfolio'];
+export const START_TABS = ['lists', 'multichart', 'orderblock', 'intraday', 'swing', 'analysis', 'dashboard', 'books', 'screener', 'scanner', 'watchlist', 'alerts', 'portfolio'];
 
 export const DEFAULT_SETTINGS = {
   defaultTimeframe: 'D',
   startTab: 'orderblock',
   hideAmounts: true,
   chartIndicators: DEFAULT_INDICATORS,
+  index: 'nifty50',
 };
 
 const INDICATOR_KEYS = [...OVERLAYS, ...PANES].map((o) => o.key);
@@ -32,6 +33,7 @@ export function validateSettings(raw) {
     startTab: START_TABS.includes(r.startTab) ? r.startTab : DEFAULT_SETTINGS.startTab,
     hideAmounts: typeof r.hideAmounts === 'boolean' ? r.hideAmounts : DEFAULT_SETTINGS.hideAmounts,
     chartIndicators: validateIndicators(r.chartIndicators),
+    index: typeof r.index === 'string' && /^[a-z0-9]{2,30}$/.test(r.index) ? r.index : DEFAULT_SETTINGS.index,
   };
 }
 

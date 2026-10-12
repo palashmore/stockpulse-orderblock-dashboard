@@ -17,7 +17,11 @@ import DiagnosticsPanel from './components/DiagnosticsPanel';
 import StrategyWorkspace from './components/StrategyWorkspace';
 import NormalAnalysis from './components/NormalAnalysis';
 import BrokerBooks from './components/BrokerBooks';
+import StockLists from './components/StockLists';
+import MyWatchlist from './components/MyWatchlist';
+import MultiChart from './components/MultiChart';
 import ErrorBoundary from './components/ErrorBoundary';
+import { TAB_IDS } from './components/Sidebar';
 import { useLiveTick } from './hooks/useLiveTick';
 import { loadSettings, saveSettings } from './data/settings';
 import MultiTimeframePanel from './components/MultiTimeframePanel';
@@ -55,7 +59,7 @@ function formatDataTime(asOf) {
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => {
     const tab = new URLSearchParams(window.location.search).get('tab');
-    return ['dashboard', 'orderblock', 'screener', 'watchlist', 'alerts', 'scanner', 'settings', 'portfolio', 'diagnostics', 'intraday', 'swing', 'analysis', 'books'].includes(tab) ? tab : loadSettings(window.localStorage).startTab;
+    return TAB_IDS.includes(tab) ? tab : loadSettings(window.localStorage).startTab;
   });
   const [selectedStock, setSelectedStock] = useState(NIFTY_STOCKS[0]);
 
@@ -69,6 +73,11 @@ export default function App() {
   const changeIndicators = (next) => {
     setChartIndicators(next);
     saveSettings({ ...loadSettings(window.localStorage), chartIndicators: next }, window.localStorage);
+  };
+  const [indexId, setIndexId] = useState(() => loadSettings(window.localStorage).index);
+  const changeIndex = (id) => {
+    setIndexId(id);
+    saveSettings({ ...loadSettings(window.localStorage), index: id }, window.localStorage);
   };
   const nifty = useNifty50(demoMode);
   const alertsApi = useAlerts(nifty);
@@ -288,9 +297,10 @@ export default function App() {
     setSelectedStock(stock);
   };
 
-  const openStockFromOverview = (stock) => {
+  // Select a stock and go to the screen that suits where the click came from
+  const openStockFromOverview = (stock, tab = 'orderblock') => {
     handleSelectStock(stock);
-    setActiveTab('orderblock');
+    setActiveTab(tab);
   };
 
   // Order block view (orderblock tab)
@@ -422,7 +432,9 @@ export default function App() {
       case 'screener':
         return renderScreener();
       case 'watchlist':
-        return renderWatchlist();
+        return demoMode ? renderWatchlist() : <MyWatchlist onOpen={openStockFromOverview} />;
+      case 'lists':
+        return demoMode ? <p className="px-4 py-6 text-xs text-gray-500">Stock Lists need real market data and are off in simulated mode.</p> : <StockLists indexId={indexId} onIndexChange={changeIndex} onOpen={openStockFromOverview} market={marketStatus} />;
       case 'diagnostics':
         return <DiagnosticsPanel />;
       case 'books':
@@ -436,7 +448,7 @@ export default function App() {
       case 'portfolio':
         return <PortfolioPanel onSelectStock={openStockFromOverview} />;
       case 'multichart':
-        return renderPlaceholder('Multi-Chart View');
+        return demoMode ? <p className="px-4 py-6 text-xs text-gray-500">Multi-Chart needs real market data and is off in simulated mode.</p> : <MultiChart initialSymbol={null} />;
       case 'scanner':
         return <ScannerPanel nifty={nifty} onSelectStock={openStockFromOverview} />;
       case 'alerts':
@@ -451,7 +463,7 @@ export default function App() {
   return (
     <div className="flex h-screen overflow-hidden" style={{ backgroundColor: '#0a0e17' }}>
       {/* Sidebar */}
-      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} marketLabel={demoMode ? 'Simulated data' : describeMarketState(marketStatus)} marketOpen={demoMode ? null : marketStatus ? marketStatus.isOpen : null} />
 
       {/* Main Content */}
       <div className="flex flex-col flex-1 min-w-0" style={{ marginLeft: '56px' }}>
