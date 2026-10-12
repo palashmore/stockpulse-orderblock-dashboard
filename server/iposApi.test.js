@@ -192,4 +192,29 @@ describe('/api/ipos', () => {
       expect(calls.length).toBe(before);
     });
   });
+
+  describe('provider isolation', () => {
+    it('is not held up by a flood of slow Yahoo requests', async () => {
+      await new Promise((resolve) => server.close(resolve));
+      const hang = new Promise(() => {}); // Yahoo never answers
+      const fetchFn = async (url) => {
+        const u = String(url);
+        if (u.includes('yahoo.com')) return hang;
+        if (u === 'https://www.nseindia.com/') return new Response('', { status: 200 });
+        if (u.includes('investorgain.com')) return gmpPage();
+        const m = /nseindia\.com\/api\/(.+)$/.exec(u);
+        return m ? feed(m[1]) : json({}, 404);
+      };
+      const { app } = createApp({ fetchFn, now: () => clock, retryDelayMs: 0, alertIntervalMs: 0, upstreamConcurrency: 1, ipoDetailWaitMs: 60 });
+      await new Promise((resolve) => { server = app.listen(0, resolve); });
+      base = `http://127.0.0.1:${server.address().port}/api`;
+
+      const controller = new AbortController();
+      for (let i = 0; i < 3; i++) realFetch(`${base}/quote/RELIANCE`, { signal: controller.signal }).catch(() => {}); // pile up behind Yahoo
+      const { res, body } = await get();
+      controller.abort();
+      expect(res.status).toBe(200);
+      expect(body.ipos.length).toBeGreaterThan(0);
+    });
+  });
 });

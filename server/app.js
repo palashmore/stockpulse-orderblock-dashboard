@@ -122,9 +122,21 @@ export function createApp({
   ipoDetailWaitMs = Number(process.env.IPO_DETAIL_WAIT_MS) || 12_000, // how long the IPO list waits for NSE's per-issue pages
 } = {}) {
   const app = express();
-  // At most `upstreamConcurrency` provider requests in flight; the rest queue.
-  const limit = createConcurrencyLimiter(upstreamConcurrency);
-  const fetchFn = (url, init) => limit(() => rawFetch(url, init));
+  // At most `upstreamConcurrency` requests in flight to each provider (Yahoo, NSE, InvestorGain...); the rest queue.
+  // One shared queue let a burst of Yahoo history requests (a big scan) hold up NSE calls until their timeouts fired.
+  const limiters = new Map();
+  const providerOf = (url) => {
+    try {
+      return new URL(String(url)).hostname.split('.').slice(-2).join('.');
+    } catch {
+      return 'other';
+    }
+  };
+  const fetchFn = (url, init) => {
+    const provider = providerOf(url);
+    if (!limiters.has(provider)) limiters.set(provider, createConcurrencyLimiter(upstreamConcurrency));
+    return limiters.get(provider)(() => rawFetch(url, init));
+  };
   const inFlight = new Map(); // cache key -> pending provider load, so concurrent identical requests share one call
   const cache = createCache(now);
   let nseCookies = '';

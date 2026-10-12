@@ -52,7 +52,7 @@ export default function Sidebar({ activeTab, onTabChange, marketLabel = null, ma
 
   return (
     <div
-      className={`fixed left-0 top-0 h-full z-50 hidden md:flex flex-col transition-all duration-300 ${
+      className={`fixed left-0 top-0 h-full z-[66] hidden md:flex flex-col transition-all duration-300 ${
         expanded ? 'w-52' : 'w-14'
       }`}
       style={{
