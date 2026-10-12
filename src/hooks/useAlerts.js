@@ -9,7 +9,7 @@ import {
   MAX_ALERTS,
 } from '../data/alerts';
 import { loadAlerts, saveAlerts } from '../data/alertStore';
-import { unseenEvents, eventLine } from '../data/serverAlerts';
+import { unseenEvents, eventLine, eventTitle } from '../data/serverAlerts';
 import {
   fetchServerAlerts,
   createServerAlert,
@@ -19,6 +19,7 @@ import {
   importServerAlerts,
   checkServerAlertsNow,
   testAlertNotification,
+  saveFeedAlertSettings,
 } from '../services/api';
 
 const MAX_RECENT = 20;
@@ -106,7 +107,7 @@ function useServerAlerts() {
     } else {
       for (const e of unseenEvents(events, seen.current).reverse()) {
         seen.current.add(e.id);
-        showNotification(`${e.symbol} alert`, `${eventLine(e)}. This is a price level being reached, not advice.`);
+        showNotification(eventTitle(e), e.kind === 'price' ? `${eventLine(e)}. This is a price level being reached, not advice.` : eventLine(e));
       }
     }
     setView({ mode: 'server', alerts: body.alerts ?? [], events, engine: body.engine ?? null, offline: false });
@@ -145,6 +146,7 @@ function useServerAlerts() {
     activate: (id) => act(activateServerAlert(id)),
     checkNow: () => act(checkServerAlertsNow()),
     sendTest: () => testAlertNotification(),
+    saveFeed: (settings) => act(saveFeedAlertSettings(settings)),
     importFrom: async (list) => {
       const result = await importServerAlerts(list);
       if (result.ok) await refresh();
@@ -192,6 +194,7 @@ export function useAlerts(nifty) {
       activate: server.activate,
       checkNow: server.checkNow,
       sendTest: server.sendTest,
+      saveFeed: server.saveFeed,
       migrate,
       requestNotifications,
     };

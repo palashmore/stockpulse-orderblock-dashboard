@@ -566,6 +566,7 @@ export function createApp({
     marketOpen: async () => { await ensureHolidays(); return marketAt(now()).isOpen; },
     isValidSymbol,
     notifier: alertNotifier,
+    brokerStatus: () => ({ configured: breeze.configured, connected: breeze.isConnected() }),
     now,
     intervalMs: alertIntervalMs,
   });
@@ -1152,6 +1153,11 @@ export function createApp({
     const result = await alerts.add({ symbol: req.body?.symbol, type: req.body?.type, threshold: req.body?.threshold });
     if (result.error) return res.status(400).json({ error: result.error });
     res.status(201).json({ alert: result.alert });
+  });
+
+  app.post('/api/alerts/feed-settings', localOnly, (req, res) => {
+    const settings = alerts.updateFeedSettings(req.body);
+    res.json({ feed: settings, ...alertsView() });
   });
 
   app.post('/api/alerts/import', localOnly, (req, res) => {

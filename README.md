@@ -52,7 +52,11 @@ Alerts created on the **Alerts** screen are saved by the server (default `data/a
 * An alert fires once and is saved as triggered *before* any notification is sent, so a failed notification never causes a repeat. A gap between two checks (for example after a restart) counts as a crossing.
 * Alerts previously saved in the browser can be moved to the server from the Alerts screen. If the server's alert service is unreachable (for example the page is opened from a phone), the screen falls back to browser-only alerts that run while the tab is open, and says so.
 * Optional push to your phone through [ntfy](https://ntfy.sh) (free): set `NTFY_TOPIC` in `.env` (see `.env.example`), subscribe to the same topic in the ntfy app, and use **Send test** on the Alerts screen. The alert text is sent to that topic, so use a long random name.
+* **Feed alerts** (on by default, 5 minutes, adjustable on the Alerts screen): during market hours the server also watches that live or delayed prices keep arriving. If they stop for the set time it raises one notice (and a push, if configured), and one more when they return. It also tells you if a signed-in ICICI Direct session drops mid-session. Nothing is said while the market is closed.
 * The alert endpoints answer only on the machine running the server, like the other personal endpoints. Alerts never place orders.
+
+### Multi-Chart linking
+On the **Multi-Chart** screen, "Link crosshair and zoom" (on by default) makes the pointer on one chart show the same moment on all the others, and scrolling or zooming one moves them all. Charts on different timeframes line up on the nearest earlier bar. "Same stock in every chart" shows one stock everywhere: turn off "Same timeframe for all" to compare its timeframes side by side.
 
 ### Mainboard IPO tracking
 The **IPOs** tab lists mainboard issues only (SME, debt and withdrawal windows are dropped) from NSE's public IPO feeds, through the server. Tabs: open now, upcoming, closed (awaiting listing), listed, tracked, all (history from 2023). Each issue shows its price band, lot, minimum investment, subscription while open, and a timeline: opening, closing, allotment, refund/credit and listing.

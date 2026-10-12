@@ -23,11 +23,15 @@ export function unseenEvents(events, seen) {
 
 /** One line for a notification or history row. */
 export function eventLine(event) {
+  if (event.kind === 'feed' || event.kind === 'broker') return event.message;
   const level = `₹${event.threshold.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const price = `₹${event.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const verb = event.type === 'above' ? `rose to ${level} or above` : `fell to ${level} or below`;
   return `${event.symbol} ${verb}; last price ${price}${event.status ? ` (${event.status})` : ''}`;
 }
+
+/** Title for a browser notification about an event. */
+export const eventTitle = (event) => (event.kind === 'feed' ? 'Price feed' : event.kind === 'broker' ? 'ICICI Direct session' : `${event.symbol} alert`);
 
 const DELIVERY = { sent: 'push sent', failed: 'push failed', none: 'no push channel', pending: 'push pending' };
 export const deliveryLabel = (delivery) => DELIVERY[delivery] ?? DELIVERY.none;

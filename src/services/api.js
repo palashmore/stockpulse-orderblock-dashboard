@@ -217,6 +217,7 @@ export const activateServerAlert = (id) => alertsRequest('POST', `/${encodeURICo
 export const importServerAlerts = (alerts) => alertsRequest('POST', '/import', { alerts });
 export const checkServerAlertsNow = () => alertsRequest('POST', '/check');
 export const testAlertNotification = () => alertsRequest('POST', '/test-notification');
+export const saveFeedAlertSettings = (settings) => alertsRequest('POST', '/feed-settings', settings);
 
 // Mainboard IPOs from NSE's public feeds (through the server). Resolves { ok: true, ipos, todayKey, calendar,
 // dataStatus, provider, fetchedAt, staleAgeSec } or { ok: false, error }. The first load makes several NSE calls, so allow longer.

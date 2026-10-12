@@ -4,7 +4,8 @@ import TradingChart from './TradingChart';
 import { fetchHistory, searchStocks } from '../services/api';
 import { TIMEFRAMES } from '../data/timeframes';
 import { aggregateCandles } from '../data/timeframes';
-import { loadLayout, saveLayout, cellTimeframe, setCellSymbol, setCellTimeframe, COUNTS } from '../data/multiChart';
+import { loadLayout, saveLayout, cellTimeframe, setCellSymbol, setCellTimeframe, COUNTS, cellSymbol } from '../data/multiChart';
+import { createChartLink } from '../data/chartLink';
 import { useWatchlist } from '../hooks/useWatchlist';
 import { STATUS_META } from '../data/dataStatus';
 
@@ -51,7 +52,7 @@ function SymbolPicker({ value, onPick, quick }) {
   );
 }
 
-function ChartCell({ symbol, frame, onSymbol, onFrame, linked, expanded, onExpand, quick }) {
+function ChartCell({ symbol, frame, onSymbol, onFrame, linked, expanded, onExpand, quick, link, linkId }) {
   // Each cell loads its own data. The response is applied only if it still matches this cell's current
   // request, so changing the stock or timeframe quickly can never leave an older answer on screen.
   const request = `${symbol}|${frame.id}`;
@@ -101,7 +102,7 @@ function ChartCell({ symbol, frame, onSymbol, onFrame, linked, expanded, onExpan
             <button onClick={() => setReloadTick((t) => t + 1)} className="mt-2 underline cursor-pointer" style={{ color: '#00e5ff' }}>Retry</button>
           </div>
         )}
-        {!loading && candles.length > 0 && <TradingChart candleData={candles} indicators={INDICATORS} intraday={frame.intraday} />}
+        {!loading && candles.length > 0 && <TradingChart candleData={candles} indicators={INDICATORS} intraday={frame.intraday} link={link} linkId={linkId} />}
       </div>
 
       {data && <p className="px-2 py-1 text-[10px] text-gray-600 flex-shrink-0">{data.provider} · as of {typeof data.asOf === 'string' && data.asOf.includes('T') ? `${new Date(data.asOf).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} IST` : data.asOf}</p>}
@@ -118,6 +119,7 @@ export default function MultiChart({ initialSymbol }) {
   });
   const [expanded, setExpanded] = useState(null);
   const [storageOk, setStorageOk] = useState(true);
+  const hub = useMemo(() => createChartLink(), []);
   const watch = useWatchlist();
   const quick = useMemo(() => [...watch.allSymbols].slice(0, 12), [watch.allSymbols]);
 
@@ -140,6 +142,12 @@ export default function MultiChart({ initialSymbol }) {
         <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer ml-2">
           <input type="checkbox" checked={layout.linkTimeframe} onChange={(e) => update({ ...layout, linkTimeframe: e.target.checked })} /> Same timeframe for all
         </label>
+        <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer" title="Move the pointer over one chart and the others show the same moment; scrolling or zooming one moves them all">
+          <input type="checkbox" checked={layout.linkCrosshair} onChange={(e) => update({ ...layout, linkCrosshair: e.target.checked })} /> Link crosshair and zoom
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer" title="Every chart shows the same stock; choosing a stock in any chart changes them all. Turn off 'Same timeframe for all' to compare timeframes of one stock.">
+          <input type="checkbox" checked={layout.linkSymbol} onChange={(e) => update({ ...layout, linkSymbol: e.target.checked })} /> Same stock in every chart
+        </label>
         {layout.linkTimeframe && (
           <div className="flex gap-1">
             {TIMEFRAMES.map((t) => (
@@ -156,7 +164,7 @@ export default function MultiChart({ initialSymbol }) {
         {visible.map((i) => (
           <ChartCell
             key={i}
-            symbol={layout.cells[i].symbol}
+            symbol={cellSymbol(layout, i)}
             frame={cellTimeframe(layout, i)}
             linked={layout.linkTimeframe}
             onSymbol={(s) => update(setCellSymbol(layout, i, s))}
@@ -164,11 +172,13 @@ export default function MultiChart({ initialSymbol }) {
             expanded={expanded === i}
             onExpand={() => setExpanded(expanded === i ? null : i)}
             quick={quick}
+            link={layout.linkCrosshair ? hub : null}
+            linkId={i}
           />
         ))}
       </div>
       <p className="px-4 pb-2 text-[10px] text-gray-600 flex-shrink-0">
-        Every chart loads on its own; a failure in one does not affect the others. Symbol and crosshair linking between charts are not built yet. Choose a stock from search or your watchlist.
+        Every chart loads on its own; a failure in one does not affect the others. With the crosshair linked, charts on different timeframes line up on the nearest earlier bar; a daily and an intraday chart cannot be matched to each other and stay independent. Choose a stock from search or your watchlist.
       </p>
     </div>
   );

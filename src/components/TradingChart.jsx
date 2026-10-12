@@ -12,8 +12,9 @@ import { rsi, macd, adx } from '../data/indicators';
 import { OVERLAYS, DEFAULT_INDICATORS, toLine, compare, normaliseTime, buildSignalMarkers } from '../data/chartConfig';
 import { useTheme } from '../hooks/useTheme';
 import { chartColors } from '../data/theme';
+import { nearestAtOrBefore, clampRange } from '../data/chartLink';
 
-export default function TradingChart({ candleData, orderBlocks = [], indicators = DEFAULT_INDICATORS, signals = [], trades = [], selectedId = null, onSelectSignal, intraday = false }) {
+export default function TradingChart({ candleData, orderBlocks = [], indicators = DEFAULT_INDICATORS, signals = [], trades = [], selectedId = null, onSelectSignal, intraday = false, link = null, linkId = null }) {
   const { theme } = useTheme();
   const containerRef = useRef(null);
   const chartRef = useRef(null);
@@ -55,6 +56,41 @@ export default function TradingChart({ candleData, orderBlocks = [], indicators 
     });
     candles.setData(candleData);
     candleSeriesRef.current = candles;
+
+    // Crosshair and zoom linking with other charts (Multi-Chart). Events caused by following another chart are not
+    // sent back out (a short mute), and any chart call that fails (a chart being removed) is ignored.
+    let unregisterLink = null;
+    if (link && linkId !== null) {
+      let mutedUntil = 0;
+      const mute = () => { mutedUntil = Date.now() + 60; };
+      const guarded = (fn) => { try { fn(); } catch { /* the chart was disposed or has no such time */ } };
+      unregisterLink = link.register(linkId, {
+        show(time) {
+          const bar = nearestAtOrBefore(candleData, time);
+          mute();
+          if (!bar) guarded(() => chart.clearCrosshairPosition());
+          else guarded(() => chart.setCrosshairPosition(bar.close, bar.time, candles));
+        },
+        clear() {
+          mute();
+          guarded(() => chart.clearCrosshairPosition());
+        },
+        setRange(range) {
+          const clamped = clampRange(candleData, range);
+          if (!clamped) return;
+          mute();
+          guarded(() => chart.timeScale().setVisibleRange(clamped));
+        },
+      });
+      chart.subscribeCrosshairMove((param) => {
+        if (Date.now() < mutedUntil) return;
+        link.crosshair(linkId, param.time ?? null);
+      });
+      chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
+        if (Date.now() < mutedUntil) return;
+        link.range(linkId, range);
+      });
+    }
 
     // Volume (only bars that actually have a volume figure)
     const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
@@ -135,6 +171,7 @@ export default function TradingChart({ candleData, orderBlocks = [], indicators 
 
     return () => {
       resize.disconnect();
+      if (unregisterLink) unregisterLink();
       priceLinesRef.current = [];
       candleSeriesRef.current = null;
       chart.remove();
@@ -142,7 +179,7 @@ export default function TradingChart({ candleData, orderBlocks = [], indicators 
     };
     // The chart is rebuilt when the data, indicator set or markers change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candleData, orderBlocks, indicatorKey, markers, intraday, theme]);
+  }, [candleData, orderBlocks, indicatorKey, markers, intraday, theme, link, linkId]);
 
   // Entry / stop / target lines for the selected signal, without rebuilding the chart
   useEffect(() => {

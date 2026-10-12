@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { defaultLayout, validateLayout, loadLayout, saveLayout, cellTimeframe, setCellSymbol, setCellTimeframe, LAYOUT_KEY } from './multiChart';
+import { defaultLayout, validateLayout, loadLayout, saveLayout, cellTimeframe, setCellSymbol, setCellTimeframe, LAYOUT_KEY, cellSymbol } from './multiChart';
 
 const memory = (value) => {
   const data = new Map(value === undefined ? [] : [[LAYOUT_KEY, value]]);
@@ -54,3 +54,40 @@ describe('multi-chart layout', () => {
     expect(setCellTimeframe(free, 0, 'bogus')).toBe(free);
   });
 });
+
+describe('linking charts', () => {
+  it('links the crosshair by default and the stock never', () => {
+    const d = defaultLayout();
+    expect(d.linkCrosshair).toBe(true);
+    expect(d.linkSymbol).toBe(false);
+  });
+
+  it('validates the two switches, falling back to their defaults', () => {
+    expect(validateLayout({ linkCrosshair: false, linkSymbol: true })).toMatchObject({ linkCrosshair: false, linkSymbol: true });
+    expect(validateLayout({ linkCrosshair: 'yes', linkSymbol: 1 })).toMatchObject({ linkCrosshair: true, linkSymbol: false });
+    expect(validateLayout({})).toMatchObject({ linkCrosshair: true, linkSymbol: false });
+  });
+
+  it('lets each chart keep its own stock unless the stock is linked', () => {
+    const layout = defaultLayout();
+    expect([0, 1, 2].map((i) => cellSymbol(layout, i))).toEqual(['RELIANCE', 'TCS', 'HDFCBANK']);
+    const linked = { ...layout, linkSymbol: true };
+    expect([0, 1, 2, 5].map((i) => cellSymbol(linked, i))).toEqual(['RELIANCE', 'RELIANCE', 'RELIANCE', 'RELIANCE']);
+  });
+
+  it('changes the shared stock for every chart when linked, from whichever chart was used', () => {
+    const linked = { ...defaultLayout(), linkSymbol: true };
+    const after = setCellSymbol(linked, 3, 'IRFC');
+    expect([0, 1, 2, 3].map((i) => cellSymbol(after, i))).toEqual(['IRFC', 'IRFC', 'IRFC', 'IRFC']);
+    expect(after.cells[3].symbol).toBe('INFY'); // the chart's own choice is kept for when the link is turned off
+    expect(setCellSymbol(linked, 3, 'bad symbol')).toBe(linked);
+  });
+
+  it('survives a save and load with the switches', () => {
+    let value = null;
+    const storage = { getItem: () => value, setItem: (_k, v) => { value = v; } };
+    saveLayout({ ...defaultLayout(), linkCrosshair: false, linkSymbol: true }, storage);
+    expect(loadLayout(storage)).toMatchObject({ linkCrosshair: false, linkSymbol: true });
+  });
+});
+

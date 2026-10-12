@@ -290,9 +290,9 @@ describe('alert engine', () => {
 
 describe('alert storage', () => {
   it('treats corrupt or malformed stored data as empty', () => {
-    expect(parseState('not json')).toEqual({ alerts: [], events: [] });
-    expect(parseState(null)).toEqual({ alerts: [], events: [] });
-    expect(parseState('{"alerts": 5, "events": "x"}')).toEqual({ alerts: [], events: [] });
+    expect(parseState('not json')).toEqual({ alerts: [], events: [], feed: { enabled: true, staleMinutes: 5 } });
+    expect(parseState(null)).toEqual({ alerts: [], events: [], feed: { enabled: true, staleMinutes: 5 } });
+    expect(parseState('{"alerts": 5, "events": "x"}')).toEqual({ alerts: [], events: [], feed: { enabled: true, staleMinutes: 5 } });
   });
 
   it('keeps only well-formed alerts and events', () => {
@@ -309,13 +309,13 @@ describe('alert storage', () => {
     try {
       const file = path.join(dir, 'nested', 'alerts.json');
       const store = createFileAlertStore(file);
-      expect(store.load()).toEqual({ alerts: [], events: [] });
+      expect(store.load()).toEqual({ alerts: [], events: [], feed: { enabled: true, staleMinutes: 5 } });
       const alert = { id: 'a', symbol: 'TCS', type: 'above', threshold: 10, status: 'active', lastPrice: 9 };
       expect(store.save({ alerts: [alert], events: [] })).toBe(true);
       expect(store.load().alerts[0]).toMatchObject({ id: 'a', symbol: 'TCS' });
       expect(fs.readdirSync(path.dirname(file))).toEqual(['alerts.json']); // no temp file left behind
       fs.writeFileSync(file, '{broken');
-      expect(store.load()).toEqual({ alerts: [], events: [] });
+      expect(store.load()).toEqual({ alerts: [], events: [], feed: { enabled: true, staleMinutes: 5 } });
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

@@ -34,7 +34,7 @@ const smallButton = 'px-2 py-1 rounded cursor-pointer bg-white/5 text-gray-300 h
 export default function AlertsPanel({ nifty, alertsApi, selectedStock, demoMode }) {
   const {
     mode, alerts, events, engine, offline, recent, evaluating, saveFailed, permission, browserAlertCount,
-    addAlert, removeAlert, pause, activate, checkNow, sendTest, migrate, requestNotifications,
+    addAlert, removeAlert, pause, activate, checkNow, sendTest, saveFeed, migrate, requestNotifications,
   } = alertsApi;
   const server = mode === 'server';
   const watch = useWatchlist('daily');
@@ -242,6 +242,43 @@ export default function AlertsPanel({ nifty, alertsApi, selectedStock, demoMode 
         {note && <span role="status" className="text-gray-300">{note}</span>}
       </div>
 
+      {server && engine?.feed && (
+        <div className="flex flex-wrap items-center gap-3 px-4 py-2 text-[11px] text-gray-500" style={rule}>
+          <label className="flex items-center gap-2 text-gray-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={engine.feed.enabled}
+              onChange={(e) => run('feed', () => saveFeed({ enabled: e.target.checked }), (r) => (r.ok ? '' : 'Could not save the feed alert setting'))}
+              aria-label="Alert me when the price feed goes stale"
+            />
+            Feed alerts: tell me when prices stop arriving
+          </label>
+          <label className="flex items-center gap-1">
+            for
+            <select
+              value={engine.feed.staleMinutes}
+              disabled={!engine.feed.enabled}
+              onChange={(e) => run('feed', () => saveFeed({ staleMinutes: Number(e.target.value) }), (r) => (r.ok ? '' : 'Could not save the feed alert setting'))}
+              aria-label="Minutes without prices before an alert"
+              className={`${inputClass} py-0.5`}
+              style={{ backgroundColor: '#0d1117' }}
+            >
+              {[2, 5, 10, 15, 30].map((m) => <option key={m} value={m}>{m} min</option>)}
+            </select>
+          </label>
+          <span>
+            {!engine.feed.enabled
+              ? 'Off.'
+              : engine.feed.alerted
+                ? <span style={{ color: '#ff1744' }}>Feed has been down for about {engine.feed.unhealthyMinutes} min (alert sent).</span>
+                : engine.feed.unhealthyMinutes > 0
+                  ? <span style={{ color: '#ffd600' }}>No usable prices for {engine.feed.unhealthyMinutes} min so far.</span>
+                  : 'Feed looks healthy, or the market is closed.'}
+            {' '}Only during market hours. Also tells you if your ICICI Direct session drops.
+          </span>
+        </div>
+      )}
+
       {recent.length > 0 && (
         <div className="px-4 py-2" style={{ ...rule, backgroundColor: 'rgba(255, 214, 0, 0.06)' }}>
           <h3 className="text-[10px] text-yellow-400 uppercase tracking-wider mb-1">Triggered this session</h3>
@@ -295,7 +332,7 @@ export default function AlertsPanel({ nifty, alertsApi, selectedStock, demoMode 
           <h3 className="px-4 py-1 text-[11px] text-gray-500 uppercase tracking-wider">History ({events.length})</h3>
           {events.slice(0, 30).map((ev) => (
             <p key={ev.id} className="px-4 py-1 text-xs text-gray-400">
-              <span className="text-gray-500">{fmtTime(ev.at)}</span> · {eventLine(ev)} · <span className="text-gray-500">{deliveryLabel(ev.delivery)}</span>
+              <span className="text-gray-500">{fmtTime(ev.at)}</span> ·{ev.kind === 'feed' || ev.kind === 'broker' ? <span style={{ color: '#ffd600' }}> {ev.kind === 'feed' ? 'Feed' : 'Broker'}:</span> : null} {eventLine(ev)} · <span className="text-gray-500">{deliveryLabel(ev.delivery)}</span>
             </p>
           ))}
         </section>

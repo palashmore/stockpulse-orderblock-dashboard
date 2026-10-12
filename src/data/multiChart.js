@@ -8,7 +8,7 @@ const SYMBOL = /^[A-Z0-9&.-]{1,20}$/;
 export const DEFAULT_SYMBOLS = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'SBIN'];
 
 export function defaultLayout() {
-  return { count: 4, linkTimeframe: true, timeframe: 'D', cells: DEFAULT_SYMBOLS.map((symbol) => ({ symbol, timeframe: 'D' })) };
+  return { count: 4, linkTimeframe: true, timeframe: 'D', linkCrosshair: true, linkSymbol: false, cells: DEFAULT_SYMBOLS.map((symbol) => ({ symbol, timeframe: 'D' })) };
 }
 
 export function validateLayout(raw) {
@@ -26,6 +26,8 @@ export function validateLayout(raw) {
     count,
     linkTimeframe: typeof raw.linkTimeframe === 'boolean' ? raw.linkTimeframe : true,
     timeframe: TIMEFRAMES.some((t) => t.id === raw.timeframe) ? raw.timeframe : 'D',
+    linkCrosshair: typeof raw.linkCrosshair === 'boolean' ? raw.linkCrosshair : d.linkCrosshair,
+    linkSymbol: typeof raw.linkSymbol === 'boolean' ? raw.linkSymbol : d.linkSymbol,
     cells,
   };
 }
@@ -52,10 +54,16 @@ export function cellTimeframe(layout, index) {
   return getTimeframe(layout.linkTimeframe ? layout.timeframe : layout.cells[index].timeframe);
 }
 
-/** Change one cell's symbol without touching any other cell. */
+/** The stock a cell shows: its own, or the first cell's when "same stock in every chart" is on. */
+export function cellSymbol(layout, index) {
+  return layout.linkSymbol ? layout.cells[0].symbol : layout.cells[index].symbol;
+}
+
+/** Change one cell's symbol without touching any other cell (with linked symbols, the shared one changes for all). */
 export function setCellSymbol(layout, index, symbol) {
   if (!SYMBOL.test(symbol) || index < 0 || index >= layout.cells.length) return layout;
-  return { ...layout, cells: layout.cells.map((c, i) => (i === index ? { ...c, symbol } : c)) };
+  const target = layout.linkSymbol ? 0 : index;
+  return { ...layout, cells: layout.cells.map((c, i) => (i === target ? { ...c, symbol } : c)) };
 }
 
 export function setCellTimeframe(layout, index, timeframe) {

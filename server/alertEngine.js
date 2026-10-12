@@ -21,19 +21,41 @@ const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
 // ---------- storage ----------
 
-const cleanEvent = (raw) => {
-  if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || typeof raw.symbol !== 'string') return null;
-  if (!isNum(raw.price) || !isNum(raw.threshold) || typeof raw.at !== 'string') return null;
+export const DEFAULT_FEED_SETTINGS = { enabled: true, staleMinutes: 5 };
+const EVENT_KINDS = ['price', 'feed', 'broker'];
+
+/** Validate feed-alert settings (stored data or a request body); unknown or invalid fields keep their current value. */
+export function sanitizeFeedSettings(raw, current = DEFAULT_FEED_SETTINGS) {
+  const r = raw && typeof raw === 'object' ? raw : {};
+  const minutes = Number(r.staleMinutes);
   return {
+    enabled: typeof r.enabled === 'boolean' ? r.enabled : current.enabled,
+    staleMinutes: Number.isInteger(minutes) && minutes >= 1 && minutes <= 120 ? minutes : current.staleMinutes,
+  };
+}
+
+const cleanEvent = (raw) => {
+  if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || typeof raw.at !== 'string') return null;
+  const kind = EVENT_KINDS.includes(raw.kind) ? raw.kind : 'price';
+  const common = {
     id: raw.id,
+    kind,
+    at: raw.at,
+    delivery: typeof raw.delivery === 'string' ? raw.delivery : 'none',
+  };
+  if (kind !== 'price') {
+    // feed and broker notices carry a sentence instead of a price level
+    return typeof raw.message === 'string' && raw.message !== '' ? { ...common, message: raw.message.slice(0, 300) } : null;
+  }
+  if (typeof raw.symbol !== 'string' || !isNum(raw.price) || !isNum(raw.threshold)) return null;
+  return {
+    ...common,
     alertId: typeof raw.alertId === 'string' ? raw.alertId : null,
     symbol: raw.symbol,
     type: raw.type === 'below' ? 'below' : 'above',
     threshold: raw.threshold,
     price: raw.price,
-    at: raw.at,
     status: typeof raw.status === 'string' ? raw.status : null,
-    delivery: typeof raw.delivery === 'string' ? raw.delivery : 'none',
   };
 };
 
@@ -44,9 +66,10 @@ export function parseState(text) {
     return {
       alerts: loadAlerts({ getItem: () => JSON.stringify(parsed?.alerts ?? []) }),
       events: (Array.isArray(parsed?.events) ? parsed.events : []).map(cleanEvent).filter(Boolean).slice(0, MAX_EVENTS),
+      feed: sanitizeFeedSettings(parsed?.feed),
     };
   } catch {
-    return { alerts: [], events: [] };
+    return { alerts: [], events: [], feed: { ...DEFAULT_FEED_SETTINGS } };
   }
 }
 
@@ -66,7 +89,7 @@ export function createFileAlertStore(file) {
       try {
         return parseState(fs.readFileSync(file, 'utf8'));
       } catch {
-        return { alerts: [], events: [] };
+        return parseState(null);
       }
     },
     save(state) {
@@ -127,6 +150,8 @@ const inr = (n) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, m
  * @param getQuotes  async (symbols) => [{ symbol, price, status, provider, asOf }]; may throw
  * @param marketOpen async () => boolean
  * @param notifier   { channel, send } from createNotifier, or null
+ * @param brokerStatus () => { configured, connected }: lets the engine notice a signed-in broker session dropping
+ * @param probeSymbol a liquid symbol used to check the price feed when there are no price alerts to evaluate
  */
 export function createAlertEngine({
   store,
@@ -134,16 +159,21 @@ export function createAlertEngine({
   marketOpen,
   isValidSymbol = (s) => /^[A-Z0-9&-]{1,20}$/.test(s),
   notifier = null,
+  brokerStatus = null,
+  probeSymbol = 'RELIANCE',
   now = Date.now,
   newId = randomUUID,
   intervalMs = 60_000,
 }) {
-  let { alerts, events } = store.load();
+  let { alerts, events, feed: feedSettings } = store.load();
+  feedSettings = sanitizeFeedSettings(feedSettings);
+  const feedWatch = { since: null, alertedAt: null }; // when the feed went bad, and when the user was told
+  let brokerWasConnected = null;
   let timer = null;
   let checking = null;
   const state = { lastCheckAt: null, outcome: 'not-run-yet', detail: null, saveFailed: false };
 
-  const persist = () => { state.saveFailed = !store.save({ alerts, events }); };
+  const persist = () => { state.saveFailed = !store.save({ alerts, events, feed: feedSettings }); };
   const iso = () => new Date(now()).toISOString();
 
   const baselineQuote = async (symbol) => {
@@ -209,6 +239,74 @@ export function createAlertEngine({
     }
   }
 
+  /** A feed or broker notice: saved as an event first, then pushed. */
+  async function notice(kind, title, message) {
+    const event = { id: newId(), kind, at: iso(), message, delivery: 'pending' };
+    events = [event, ...events].slice(0, MAX_EVENTS);
+    persist();
+    if (!notifier?.send) {
+      event.delivery = 'none';
+    } else {
+      try {
+        await notifier.send({ title, message });
+        event.delivery = 'sent';
+      } catch (error) {
+        console.error('Notice delivery failed:', error.message);
+        event.delivery = 'failed';
+      }
+    }
+    persist();
+    return event;
+  }
+
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+  /**
+   * Watches whether usable (LIVE or DELAYED) prices keep arriving while the market is open. When they have been
+   * missing for the configured time it raises one notice, and one more when they return. Nothing is said while the
+   * market is closed (no prices are expected then), and the timers restart each session.
+   */
+  async function observeFeed(open, healthy, detail = null) {
+    if (!feedSettings.enabled || !open) {
+      feedWatch.since = null;
+      feedWatch.alertedAt = null;
+      return;
+    }
+    const t = now();
+    if (healthy) {
+      if (feedWatch.alertedAt !== null) {
+        const minutes = Math.max(1, Math.round((t - feedWatch.since) / 60000));
+        feedWatch.since = null;
+        feedWatch.alertedAt = null;
+        await notice('feed', 'StockPulse: price feed is back', `The price feed is back after about ${plural(minutes, 'minute')}. Price alerts are being checked again.`);
+      }
+      feedWatch.since = null;
+      return;
+    }
+    if (feedWatch.since === null) feedWatch.since = t;
+    if (feedWatch.alertedAt === null && t - feedWatch.since >= feedSettings.staleMinutes * 60000) {
+      feedWatch.alertedAt = t;
+      const minutes = Math.max(1, Math.round((t - feedWatch.since) / 60000));
+      await notice('feed', 'StockPulse: price feed is stale', `No live or delayed prices for about ${plural(minutes, 'minute')} while the market is open${detail ? ` (${detail})` : ''}. Price alerts cannot fire until it recovers.`);
+    }
+  }
+
+  /** Tells the user when a signed-in broker session drops during market hours (overnight expiry is normal and silent). */
+  async function observeBroker(open) {
+    if (!brokerStatus) return;
+    let b = null;
+    try { b = brokerStatus(); } catch { return; }
+    if (!b?.configured) {
+      brokerWasConnected = null;
+      return;
+    }
+    const was = brokerWasConnected;
+    brokerWasConnected = Boolean(b.connected);
+    if (open && feedSettings.enabled && was === true && !b.connected) {
+      await notice('broker', 'StockPulse: ICICI Direct session ended', 'Your ICICI Direct session is no longer connected. Prices fall back to the delayed Yahoo feed until you sign in again in Settings.');
+    }
+  }
+
   async function runCheck() {
     const finish = (outcome, detail = null) => {
       state.lastCheckAt = iso();
@@ -217,23 +315,42 @@ export function createAlertEngine({
       return { outcome, detail, fired: [] };
     };
 
-    const symbols = [...new Set(alerts.filter((a) => a.status === 'active').map((a) => a.symbol))];
-    if (symbols.length === 0) return finish('no-active-alerts');
     let open = false;
     try { open = await marketOpen(); } catch { open = false; }
-    if (!open) return finish('market-closed');
+    await observeBroker(open);
+
+    const symbols = [...new Set(alerts.filter((a) => a.status === 'active').map((a) => a.symbol))];
+    if (!open) {
+      await observeFeed(false, false);
+      return finish(symbols.length === 0 ? 'no-active-alerts' : 'market-closed');
+    }
+    if (symbols.length === 0) {
+      // Nothing to evaluate, but the feed is still worth watching: one cheap look at a liquid stock
+      if (feedSettings.enabled) {
+        try {
+          const probe = await getQuotes([probeSymbol]);
+          await observeFeed(true, (probe || []).some((q) => isNum(q.price) && isEvaluableStatus(q.status)), 'no usable quote');
+        } catch (error) {
+          await observeFeed(true, false, error.message);
+        }
+      }
+      return finish('no-active-alerts');
+    }
 
     let quotes;
     try {
       quotes = await getQuotes(symbols);
     } catch (error) {
+      await observeFeed(true, false, error.message);
       return finish('data-unavailable', error.message);
     }
     const usable = (quotes || []).filter((q) => isNum(q.price) && isEvaluableStatus(q.status));
     if (usable.length === 0) {
       const seen = [...new Set((quotes || []).map((q) => q.status))].join(', ');
+      await observeFeed(true, false, seen ? `quotes were ${seen}` : 'no quotes returned');
       return finish('data-not-live', seen ? `Quotes were ${seen}` : 'No quotes returned');
     }
+    await observeFeed(true, true);
 
     // Read the alert list after the await so edits made while quotes were loading are kept
     const nowIso = iso();
@@ -286,7 +403,19 @@ export function createAlertEngine({
         return { ok: false, error: error.message };
       }
     },
+    feedSettings: () => ({ ...feedSettings }),
+    updateFeedSettings(raw) {
+      feedSettings = sanitizeFeedSettings(raw, feedSettings);
+      if (!feedSettings.enabled) { feedWatch.since = null; feedWatch.alertedAt = null; }
+      persist();
+      return { ...feedSettings };
+    },
     status: () => ({
+      feed: {
+        ...feedSettings,
+        unhealthyMinutes: feedWatch.since === null ? 0 : Math.round((now() - feedWatch.since) / 60000),
+        alerted: feedWatch.alertedAt !== null,
+      },
       running: timer !== null,
       intervalSec: Math.round(intervalMs / 1000),
       channel: notifier?.channel ?? 'none',

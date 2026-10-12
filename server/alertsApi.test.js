@@ -184,4 +184,32 @@ describe('server-side alerts API', () => {
     const local = await realFetch(`http://127.0.0.1:${port}/api/alerts`);
     expect(local.status).toBe(200);
   });
+
+  it('reads and changes the stale-feed alert settings', async () => {
+    const view = await call('GET', '/alerts');
+    expect(view.body.engine.feed).toMatchObject({ enabled: true, staleMinutes: 5, unhealthyMinutes: 0, alerted: false });
+
+    const changed = await call('POST', '/alerts/feed-settings', { staleMinutes: 12 });
+    expect(changed.res.status).toBe(200);
+    expect(changed.body.feed).toEqual({ enabled: true, staleMinutes: 12 });
+    expect(changed.body.engine.feed.staleMinutes).toBe(12);
+
+    const ignored = await call('POST', '/alerts/feed-settings', { staleMinutes: 'lots', enabled: 'maybe' });
+    expect(ignored.body.feed).toEqual({ enabled: true, staleMinutes: 12 });
+
+    expect((await call('POST', '/alerts/feed-settings', { enabled: false })).body.feed.enabled).toBe(false);
+    expect((await call('GET', '/alerts')).body.engine.feed.enabled).toBe(false);
+  });
+
+  it('shows a stale-feed notice in the event list once the feed has been bad long enough', async () => {
+    await call('POST', '/alerts/feed-settings', { staleMinutes: 1 });
+    upstreamDown = true;
+    clock += 2 * 60_000;
+    await call('POST', '/alerts/check'); // starts the clock
+    clock += 2 * 60_000;
+    const { body } = await call('POST', '/alerts/check');
+    const notice = body.events.find((e) => e.kind === 'feed');
+    expect(notice.message).toMatch(/No live or delayed prices/);
+    expect(pushed.at(-1).title).toBe('StockPulse: price feed is stale');
+  });
 });

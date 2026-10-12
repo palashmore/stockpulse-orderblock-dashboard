@@ -45,3 +45,14 @@ describe('eventLine and deliveryLabel', () => {
     expect(deliveryLabel(undefined)).toBe('no push channel');
   });
 });
+
+describe('feed and broker notices', () => {
+  it('shows their message as the line and a plain title', async () => {
+    const { eventLine: line, eventTitle } = await import('./serverAlerts');
+    const feed = { kind: 'feed', message: 'No live or delayed prices for about 6 minutes' };
+    expect(line(feed)).toBe('No live or delayed prices for about 6 minutes');
+    expect(eventTitle(feed)).toBe('Price feed');
+    expect(eventTitle({ kind: 'broker', message: 'x' })).toBe('ICICI Direct session');
+    expect(eventTitle({ kind: 'price', symbol: 'TCS' })).toBe('TCS alert');
+  });
+});
