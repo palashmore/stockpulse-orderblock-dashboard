@@ -316,6 +316,9 @@ export function createApp({
       const candles = await breeze.getHistory(code, interval, nowMs - days * 86400000, nowMs);
       markPartialCandles(candles, interval, marketAt(nowMs), holidays);
       const last = candles[candles.length - 1];
+      // Breeze's daily series can lag the exchange (the live service had no bar for a session that
+      // had just ended). Never serve a daily series that misses the latest completed session.
+      if (!intraday && last.time < marketAt(nowMs).lastSession) return null;
       const lastBarMs = intraday ? (last.time - 19800) * 1000 : null;
       return {
         body: { symbol, currency: 'INR', exchange: 'NSE', candles },

@@ -71,8 +71,14 @@ describe('response mapping', () => {
 
   it('maps a quote, accepting numeric strings, and rejects one without a price', () => {
     const q = mapQuote({ ltp: '1500.5', previous_close: '1490', open: 1495, high: 1510, low: 1488, ltp_percent_change: '0.70', total_quantity_traded: '123456', ltt: '2026-10-12 10:59:30' }, 'RELIANCE');
-    expect(q).toMatchObject({ symbol: 'RELIANCE', price: 1500.5, previousClose: 1490, changePct: 0.7, volume: 123456, high: 1510 });
+    expect(q).toMatchObject({ symbol: 'RELIANCE', price: 1500.5, previousClose: 1490, volume: 123456, high: 1510 });
+    expect(q.changePct).toBeCloseTo(0.7047, 3); // derived from price and previous close
     expect(q.change).toBeCloseTo(10.5, 10);
+    // a falling stock whose feed percent is unsigned must still come out negative
+    const falling = mapQuote({ ltp: '2125', previous_close: '2156', ltp_percent_change: '1.4378' }, 'TCS');
+    expect(falling.changePct).toBeCloseTo(-1.438, 3);
+    expect(falling.change).toBe(-31);
+    expect(mapQuote({ ltp: 10, ltp_percent_change: '2' }, 'X').changePct).toBe(2); // no previous close: feed value
     expect(mapQuote({ ltp: '' }, 'X')).toBeNull();
     expect(mapQuote(null, 'X')).toBeNull();
     expect(mapQuote({ ltp: 10 }, 'X').change).toBeNull(); // no previous close: not guessed
@@ -180,6 +186,10 @@ describe('client', () => {
     const candles = await client.getHistory('RELIND', '5m', OPEN_MS - 86400000, OPEN_MS);
     expect(candles).toHaveLength(1);
     expect(JSON.parse(sent[1].body)).toMatchObject({ interval: '5minute', to_date: '2026-10-12T11:00:00.000Z', from_date: '2026-10-11T11:00:00.000Z' });
+    await client.getHistory('RELIND', '1d', OPEN_MS - 86400000, OPEN_MS);
+    expect(JSON.parse(sent[2].body).interval).toBe('day');
+    await client.getHistory('RELIND', '1m', OPEN_MS - 86400000, OPEN_MS);
+    expect(JSON.parse(sent[3].body).interval).toBe('minute');
     await expect(client.getHistory('RELIND', '15m', 0, 1)).rejects.toThrow(/Unsupported/);
   });
 });
@@ -247,6 +257,18 @@ describe('API integration', () => {
     yahoo = () => jsonResponse({ chart: { result: [{ meta: { gmtoffset: 19800 }, timestamp: [Math.floor(OPEN_MS / 1000)], indicators: { quote: [{ open: [1], high: [2], low: [1], close: [2], volume: [1] }], adjclose: [{ adjclose: [2] }] } }] } });
     const fifteen = await get('/history/RELIANCE?range=5d&interval=15m');
     expect(fifteen.body.provider).toBe('Yahoo Finance');
+  });
+
+  it('falls back to Yahoo when the broker daily series misses the latest completed session', async () => {
+    await start({ connected: true });
+    // Mon 12 Oct 11:00 IST: last completed session is Fri 9 Oct. A bar dated 8 Oct is behind it.
+    breezeReply = () => ({ status: 200, json: { Success: [{ datetime: '2026-10-08 07:00:00', open: 1, high: 2, low: 1, close: 2, volume: 3 }] } });
+    yahoo = () => jsonResponse({ chart: { result: [{ meta: { gmtoffset: 19800 }, timestamp: [Math.floor(Date.UTC(2026, 9, 9, 4, 0) / 1000)], indicators: { quote: [{ open: [1], high: [2], low: [1], close: [2], volume: [1] }], adjclose: [{ adjclose: [2] }] } }] } });
+    const stale = await get('/history/RELIANCE?range=1mo&interval=1d');
+    expect(stale.body.provider).toBe('Yahoo Finance');
+    breezeReply = () => ({ status: 200, json: { Success: [{ datetime: '2026-10-09 07:00:00', open: 1, high: 2, low: 1, close: 2, volume: 3 }] } });
+    const fresh = await get('/history/RELIANCE?range=3mo&interval=1d');
+    expect(fresh.body.provider).toBe('ICICI Direct Breeze');
   });
 
   it('reports sign-in status and rejects bad session input', async () => {

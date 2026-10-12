@@ -9,7 +9,9 @@ const HOST = 'api.icicidirect.com';
 const BASE_PATH = '/breezeapi/api/v1';
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
-export const BREEZE_INTERVALS = { '1m': '1minute', '5m': '5minute', '30m': '30minute', '1d': '1day' };
+// The v1 historical endpoint rejects the '1minute'/'1day' spellings shown in the docs and asks for
+// 'minute', '5minute', '30minute' or 'day' (its own error message, seen on the live service).
+export const BREEZE_INTERVALS = { '1m': 'minute', '5m': '5minute', '30m': '30minute', '1d': 'day' };
 
 /** Breeze stock code for an NSE symbol, or null when the symbol is not mapped. */
 export function breezeCodeFor(symbol) {
@@ -104,6 +106,9 @@ export function mapQuote(row, symbol) {
   const price = num(row?.ltp);
   if (price === null) return null;
   const previousClose = num(row.previous_close);
+  // Breeze's ltp_percent_change comes back unsigned on the live service (a falling stock showed a
+  // positive value), so the change is derived from price and previous close when both are known.
+  const changePct = previousClose > 0 ? ((price - previousClose) / previousClose) * 100 : num(row.ltp_percent_change);
   return {
     symbol,
     name: symbol,
@@ -114,7 +119,7 @@ export function mapQuote(row, symbol) {
     low: num(row.low),
     close: price,
     change: previousClose === null ? null : price - previousClose,
-    changePct: num(row.ltp_percent_change),
+    changePct,
     volume: num(row.total_quantity_traded),
     exchange: 'NSE',
     currency: 'INR',
