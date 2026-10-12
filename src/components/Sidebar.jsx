@@ -12,11 +12,15 @@ import {
   Eye,
   Wallet,
   Gauge,
+  Zap,
+  CandlestickChart,
 } from 'lucide-react';
 
 const menuItems = [
   { icon: Home, label: 'Dashboard', id: 'dashboard' },
   { icon: Activity, label: 'Order Blocks', id: 'orderblock' },
+  { icon: Zap, label: 'Intraday', id: 'intraday' },
+  { icon: CandlestickChart, label: 'Swing', id: 'swing' },
   { icon: BarChart3, label: 'Screener', id: 'screener' },
   { icon: Layers, label: 'Multi-Chart', id: 'multichart' },
   { icon: PlayCircle, label: 'Watchlist', id: 'watchlist' },

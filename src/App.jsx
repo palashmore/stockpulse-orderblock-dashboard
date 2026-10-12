@@ -14,6 +14,7 @@ import ScannerPanel from './components/ScannerPanel';
 import SettingsPanel from './components/SettingsPanel';
 import PortfolioPanel from './components/PortfolioPanel';
 import DiagnosticsPanel from './components/DiagnosticsPanel';
+import StrategyWorkspace from './components/StrategyWorkspace';
 import { useLiveTick } from './hooks/useLiveTick';
 import { loadSettings } from './data/settings';
 import { useAlerts } from './hooks/useAlerts';
@@ -50,7 +51,7 @@ function formatDataTime(asOf) {
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => {
     const tab = new URLSearchParams(window.location.search).get('tab');
-    return ['dashboard', 'orderblock', 'screener', 'watchlist', 'alerts', 'scanner', 'settings', 'portfolio', 'diagnostics'].includes(tab) ? tab : loadSettings(window.localStorage).startTab;
+    return ['dashboard', 'orderblock', 'screener', 'watchlist', 'alerts', 'scanner', 'settings', 'portfolio', 'diagnostics', 'intraday', 'swing'].includes(tab) ? tab : loadSettings(window.localStorage).startTab;
   });
   const [selectedStock, setSelectedStock] = useState(NIFTY_STOCKS[0]);
 
@@ -411,6 +412,10 @@ export default function App() {
         return renderWatchlist();
       case 'diagnostics':
         return <DiagnosticsPanel />;
+      case 'intraday':
+        return <StrategyWorkspace key="intraday" mode="intraday" selectedStock={selectedStock} demoMode={demoMode} />;
+      case 'swing':
+        return <StrategyWorkspace key="swing" mode="swing" selectedStock={selectedStock} demoMode={demoMode} />;
       case 'portfolio':
         return <PortfolioPanel onSelectStock={openStockFromOverview} />;
       case 'multichart':

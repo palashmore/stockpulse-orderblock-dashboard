@@ -5,7 +5,7 @@ import { TIMEFRAMES } from './timeframes';
 // outdated entry falls back to defaults field by field instead of breaking the app.
 export const SETTINGS_KEY = 'stockpulse.settings.v1';
 
-export const START_TABS = ['orderblock', 'dashboard', 'screener', 'scanner', 'watchlist', 'alerts', 'portfolio'];
+export const START_TABS = ['orderblock', 'intraday', 'swing', 'dashboard', 'screener', 'scanner', 'watchlist', 'alerts', 'portfolio'];
 
 export const DEFAULT_SETTINGS = {
   defaultTimeframe: 'D',
