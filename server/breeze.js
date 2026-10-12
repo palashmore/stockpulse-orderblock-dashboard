@@ -71,12 +71,32 @@ const num = (v) => {
   return typeof n === 'number' && Number.isFinite(n) ? n : null;
 };
 
-/** Parse "YYYY-MM-DD HH:mm:ss" or ISO text as IST wall-clock into epoch ms, or null. */
+const MONTH_INDEX = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+
+/**
+ * Parse a Breeze timestamp as IST wall-clock into epoch ms, or null. Formats seen in ICICI's docs:
+ *   "2025-02-03 09:21:00" / ISO            (historical candles)
+ *   "05-Feb-2025 10:41:24"                  (trade times)
+ *   "Tue Mar 11 09:38:22 2025"              (live-feed last-trade time, Python %c)
+ */
 export function parseBreezeTime(text) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}):(\d{2}))?/.exec(String(text || '').trim());
-  if (!m) return null;
-  const [, y, mo, d, hh = '0', mm = '0', ss = '0'] = m;
-  return Date.UTC(+y, +mo - 1, +d, +hh, +mm, +ss) - IST_OFFSET_MS;
+  const value = String(text || '').trim();
+  let m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}):(\d{2}))?/.exec(value);
+  if (m) {
+    const [, y, mo, d, hh = '0', mm = '0', ss = '0'] = m;
+    return Date.UTC(+y, +mo - 1, +d, +hh, +mm, +ss) - IST_OFFSET_MS;
+  }
+  m = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})(?:\s+(\d{2}):(\d{2}):(\d{2}))?$/.exec(value);
+  if (m && MONTH_INDEX[m[2].toLowerCase()] !== undefined) {
+    const [, d, mon, y, hh = '0', mm = '0', ss = '0'] = m;
+    return Date.UTC(+y, MONTH_INDEX[mon.toLowerCase()], +d, +hh, +mm, +ss) - IST_OFFSET_MS;
+  }
+  m = /^[A-Za-z]{3}\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})$/.exec(value);
+  if (m && MONTH_INDEX[m[1].toLowerCase()] !== undefined) {
+    const [, mon, d, hh, mm, ss, y] = m;
+    return Date.UTC(+y, MONTH_INDEX[mon.toLowerCase()], +d, +hh, +mm, +ss) - IST_OFFSET_MS;
+  }
+  return null;
 }
 
 /** Map a Breeze quote row to the app's quote shape. Returns null when there is no usable price. */

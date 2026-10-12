@@ -63,6 +63,12 @@ describe('response mapping', () => {
     expect(parseBreezeTime(undefined)).toBeNull();
   });
 
+  it('parses the other timestamp formats in ICICI documentation', () => {
+    expect(parseBreezeTime('05-Feb-2025 10:41:24')).toBe(Date.UTC(2025, 1, 5, 5, 11, 24));
+    expect(parseBreezeTime('Tue Mar 11 09:38:22 2025')).toBe(Date.UTC(2025, 2, 11, 4, 8, 22));
+    expect(parseBreezeTime('06-FEB-25')).toBeNull(); // two-digit year is not guessed
+  });
+
   it('maps a quote, accepting numeric strings, and rejects one without a price', () => {
     const q = mapQuote({ ltp: '1500.5', previous_close: '1490', open: 1495, high: 1510, low: 1488, ltp_percent_change: '0.70', total_quantity_traded: '123456', ltt: '2026-10-12 10:59:30' }, 'RELIANCE');
     expect(q).toMatchObject({ symbol: 'RELIANCE', price: 1500.5, previousClose: 1490, changePct: 0.7, volume: 123456, high: 1510 });
@@ -259,6 +265,14 @@ describe('API integration', () => {
     expect((await get('/auth/status')).body.connected).toBe(true);
     await fetch(`${base}/auth/breeze/disconnect`, { method: 'POST' });
     expect((await get('/auth/status')).body.connected).toBe(false);
+  });
+
+  it('explains an address that has nothing after apisession=', async () => {
+    await start({ connected: false });
+    const res = await fetch(`${base}/auth/breeze/session`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ session: 'https://127.0.0.1/?apisession=' }) });
+    const body = await res.json();
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/nothing after/);
   });
 
   it('reports a failed sign-in without exposing secrets', async () => {

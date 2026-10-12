@@ -594,8 +594,16 @@ export function createApp({
   });
 
   app.post('/api/auth/breeze/session', localOnly, async (req, res) => {
-    const session = extractSessionToken(req.body?.session);
-    if (!session) return res.status(400).json({ error: 'Paste the redirect address (or its apisession value) after signing in' });
+    const raw = String(req.body?.session ?? '');
+    const session = extractSessionToken(raw);
+    if (!session) {
+      const emptyValue = /api_?session=\s*$/i.test(raw.trim());
+      return res.status(400).json({
+        error: emptyValue
+          ? 'That address has nothing after "apisession=". First open the ICICI sign-in page and log in; then copy the address your browser shows afterwards, which ends in a long number.'
+          : 'Paste the address your browser shows after signing in to ICICI (it contains "apisession=" followed by a number).',
+      });
+    }
     try {
       await breeze.connect(session);
       res.json({ connected: true });
