@@ -51,7 +51,7 @@ describe('signing helpers', () => {
     expect(breezeCodeFor('M&M')).toBeTruthy();
     expect(breezeCodeFor('NOPE')).toBeNull();
     const unmapped = NIFTY50_SYMBOLS.filter((s) => !breezeCodeFor(s));
-    expect(unmapped).toEqual(['TATAMOTORS']);
+    expect(unmapped).toEqual([]);
   });
 });
 

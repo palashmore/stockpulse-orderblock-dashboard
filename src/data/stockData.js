@@ -1,4 +1,6 @@
-// Generate realistic stock data for demo purposes
+// Nifty 50 constituents per NSE's official list (niftyindices.com, ind_nifty50list.csv) as of 2026-10-12.
+// Sector labels are the app's own grouping. Re-check against NSE after each semi-annual index review.
+// The same file's generators below produce simulated candles for ?demo=1 only.
 export const NIFTY_STOCKS = [
   { symbol: 'RELIANCE', name: 'Reliance Industries', sector: 'Energy' },
   { symbol: 'TCS', name: 'Tata Consultancy Services', sector: 'IT' },
@@ -16,8 +18,6 @@ export const NIFTY_STOCKS = [
   { symbol: 'MARUTI', name: 'Maruti Suzuki', sector: 'Automobile' },
   { symbol: 'TITAN', name: 'Titan Company', sector: 'Consumer Goods' },
   { symbol: 'SUNPHARMA', name: 'Sun Pharma', sector: 'Pharma' },
-  { symbol: 'TATAMOTORS', name: 'Tata Motors', sector: 'Automobile' },
-  { symbol: 'WIPRO', name: 'Wipro', sector: 'IT' },
   { symbol: 'HCLTECH', name: 'HCL Technologies', sector: 'IT' },
   { symbol: 'ADANIENT', name: 'Adani Enterprises', sector: 'Conglomerate' },
   { symbol: 'TATASTEEL', name: 'Tata Steel', sector: 'Metals' },
@@ -35,21 +35,23 @@ export const NIFTY_STOCKS = [
   { symbol: 'CIPLA', name: 'Cipla', sector: 'Pharma' },
   { symbol: 'TATACONSUM', name: 'Tata Consumer Products', sector: 'FMCG' },
   { symbol: 'APOLLOHOSP', name: 'Apollo Hospitals', sector: 'Healthcare' },
-  { symbol: 'HEROMOTOCO', name: 'Hero MotoCorp', sector: 'Automobile' },
-  { symbol: 'DIVISLAB', name: "Divi's Laboratories", sector: 'Pharma' },
-  { symbol: 'BRITANNIA', name: 'Britannia Industries', sector: 'FMCG' },
   { symbol: 'EICHERMOT', name: 'Eicher Motors', sector: 'Automobile' },
   { symbol: 'HINDALCO', name: 'Hindalco Industries', sector: 'Metals' },
   { symbol: 'SBILIFE', name: 'SBI Life Insurance', sector: 'Financial Services' },
   { symbol: 'M&M', name: 'Mahindra & Mahindra', sector: 'Automobile' },
   { symbol: 'GRASIM', name: 'Grasim Industries', sector: 'Cement' },
-  { symbol: 'INDUSINDBK', name: 'IndusInd Bank', sector: 'Banking' },
-  { symbol: 'BPCL', name: 'Bharat Petroleum', sector: 'Energy' },
   { symbol: 'HDFCLIFE', name: 'HDFC Life Insurance', sector: 'Financial Services' },
   { symbol: 'SHRIRAMFIN', name: 'Shriram Finance', sector: 'Financial Services' },
   { symbol: 'BAJAJ-AUTO', name: 'Bajaj Auto', sector: 'Automobile' },
   { symbol: 'TRENT', name: 'Trent', sector: 'Consumer Goods' },
-  { symbol: 'JSWENERGY', name: 'JSW Energy', sector: 'Power' },
+  { symbol: 'ADANIPORTS', name: 'Adani Ports and Special Economic Zone', sector: 'Infrastructure' },
+  { symbol: 'BSE', name: 'BSE', sector: 'Financial Services' },
+  { symbol: 'BEL', name: 'Bharat Electronics', sector: 'Capital Goods' },
+  { symbol: 'ETERNAL', name: 'Eternal', sector: 'Consumer Services' },
+  { symbol: 'INDIGO', name: 'InterGlobe Aviation', sector: 'Services' },
+  { symbol: 'JIOFIN', name: 'Jio Financial Services', sector: 'Financial Services' },
+  { symbol: 'MAXHEALTH', name: 'Max Healthcare Institute', sector: 'Healthcare' },
+  { symbol: 'TMPV', name: 'Tata Motors Passenger Vehicles', sector: 'Automobile' },
 ];
 
 // Seeded random for reproducibility

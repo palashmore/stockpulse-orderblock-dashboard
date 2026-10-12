@@ -1,6 +1,6 @@
 // NSE symbol -> ICICI Direct (Breeze) stock code for the Nifty 50 universe.
 // Generated from ICICI's NSEScripMaster.txt (SecurityMaster.zip, series EQ, ExchangeCode -> ShortName).
-// TATAMOTORS is not in the master (series EQ), so it has no mapping and falls back to Yahoo.
+// Symbols with no entry fall back to Yahoo.
 export const BREEZE_STOCK_CODES = {
   RELIANCE: 'RELIND',
   TCS: 'TCS',
@@ -18,7 +18,6 @@ export const BREEZE_STOCK_CODES = {
   MARUTI: 'MARUTI',
   TITAN: 'TITIND',
   SUNPHARMA: 'SUNPHA',
-  WIPRO: 'WIPRO',
   HCLTECH: 'HCLTEC',
   ADANIENT: 'ADAENT',
   TATASTEEL: 'TATSTE',
@@ -36,19 +35,21 @@ export const BREEZE_STOCK_CODES = {
   CIPLA: 'CIPLA',
   TATACONSUM: 'TATGLO',
   APOLLOHOSP: 'APOHOS',
-  HEROMOTOCO: 'HERHON',
-  DIVISLAB: 'DIVLAB',
-  BRITANNIA: 'BRIIND',
   EICHERMOT: 'EICMOT',
   HINDALCO: 'HINDAL',
   SBILIFE: 'SBILIF',
   'M&M': 'MAHMAH',
   GRASIM: 'GRASIM',
-  INDUSINDBK: 'INDBA',
-  BPCL: 'BHAPET',
   HDFCLIFE: 'HDFSTA',
   SHRIRAMFIN: 'SHRTRA',
   'BAJAJ-AUTO': 'BAAUTO',
   TRENT: 'TRENT',
-  JSWENERGY: 'JSWENE',
+  ADANIPORTS: 'ADAPOR',
+  BSE: 'BSE',
+  BEL: 'BHAELE',
+  ETERNAL: 'ZOMLIM',
+  INDIGO: 'INTAVI',
+  JIOFIN: 'JIOFIN',
+  MAXHEALTH: 'MAXHEA',
+  TMPV: 'TATMOT',
 };
