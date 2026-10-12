@@ -447,7 +447,7 @@ export default function App() {
       <div className="flex flex-col flex-1 min-w-0 md:ml-14" style={{ paddingBottom: 'var(--mobile-nav, 0px)' }}>
         {/* Top Bar */}
         <div
-          className="flex items-center justify-between gap-2 px-3 md:px-4 h-14 flex-shrink-0"
+          className="relative z-[65] flex items-center justify-between gap-2 px-3 md:px-4 h-14 flex-shrink-0"
           style={{
             backgroundColor: 'rgba(13, 17, 23, 0.95)',
             borderBottom: '1px solid rgba(30, 45, 61, 0.3)',

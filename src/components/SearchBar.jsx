@@ -8,6 +8,7 @@ export default function SearchBar({ selectedStock, onSelectStock }) {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [active, setActive] = useState(0); // highlighted result for the arrow keys
   const inputRef = useRef(null);
   const dropdownRef = useRef(null);
 
@@ -33,6 +34,15 @@ export default function SearchBar({ selectedStock, onSelectStock }) {
   const remoteForQuery = remote.query === q ? remote.results : [];
   const searching = q.length >= 2 && remote.query !== q;
   const filtered = mergeSearchResults(NIFTY_STOCKS, remoteForQuery, query, 10);
+  const highlighted = Math.min(active, Math.max(0, filtered.length - 1));
+
+  const choose = (stock) => {
+    onSelectStock(stock);
+    setQuery('');
+    setActive(0);
+    setIsOpen(false);
+    inputRef.current?.blur();
+  };
 
   useEffect(() => {
     const handler = (e) => {
@@ -79,6 +89,7 @@ export default function SearchBar({ selectedStock, onSelectStock }) {
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
+            setActive(0);
             setIsOpen(true);
           }}
           onFocus={() => {
@@ -87,15 +98,25 @@ export default function SearchBar({ selectedStock, onSelectStock }) {
           }}
           onBlur={() => setFocused(false)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && filtered.length > 0) {
-              onSelectStock(filtered[0]);
-              setQuery('');
-              setIsOpen(false);
-              e.currentTarget.blur();
+            if (e.key === 'ArrowDown' && filtered.length > 0) {
+              e.preventDefault();
+              setActive((highlighted + 1) % filtered.length);
+            } else if (e.key === 'ArrowUp' && filtered.length > 0) {
+              e.preventDefault();
+              setActive((highlighted - 1 + filtered.length) % filtered.length);
+            } else if (e.key === 'Enter' && filtered.length > 0) {
+              choose(filtered[highlighted]);
             }
           }}
+          role="combobox"
+          aria-expanded={isOpen && filtered.length > 0}
+          aria-controls="stock-search-results"
+          aria-autocomplete="list"
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
           aria-label="Search stocks"
-          className="bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none flex-1"
+          className="bg-transparent text-sm text-gray-200 placeholder-gray-500 outline-none flex-1 min-w-0 w-0"
         />
         {query && (
           <button onClick={() => { setQuery(''); setIsOpen(false); }} className="cursor-pointer" aria-label="Clear search">
@@ -109,45 +130,49 @@ export default function SearchBar({ selectedStock, onSelectStock }) {
       </div>
 
       {isOpen && q.length > 0 && filtered.length === 0 && (
-        <div className="absolute top-full left-0 right-0 mt-1 rounded-lg px-3 py-3 text-xs text-gray-500 z-50" style={{ backgroundColor: '#151d2b', border: '1px solid #1e2d3d' }}>
+        <div className="absolute top-full left-0 mt-1 rounded-lg px-3 py-3 text-xs text-gray-500 z-50 w-[calc(100vw-1.5rem)] sm:w-full" style={{ backgroundColor: '#151d2b', border: '1px solid #1e2d3d' }}>
           {searching ? 'Searching…' : 'No NSE stock found. Try the company name or the exact symbol.'}
         </div>
       )}
 
       {isOpen && filtered.length > 0 && (
         <div
-          className="absolute top-full left-0 right-0 mt-1 rounded-lg overflow-hidden z-50"
+          id="stock-search-results"
+          role="listbox"
+          className="absolute top-full left-0 mt-1 rounded-lg overflow-y-auto z-50 w-[calc(100vw-1.5rem)] sm:w-full sm:min-w-[22rem]"
           style={{
             backgroundColor: '#151d2b',
             border: '1px solid #1e2d3d',
             boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+            maxHeight: 'min(70vh, 28rem)',
           }}
         >
-          {filtered.map((stock) => (
+          {filtered.map((stock, i) => (
             <button
               key={stock.symbol}
-              onClick={() => {
-                onSelectStock(stock);
-                setQuery('');
-                setIsOpen(false);
-              }}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-left transition-colors cursor-pointer ${
-                selectedStock?.symbol === stock.symbol
-                  ? 'bg-green-500/10 text-green-400'
-                  : 'text-gray-300 hover:bg-white/5'
+              role="option"
+              aria-selected={i === highlighted}
+              onMouseEnter={() => setActive(i)}
+              onClick={() => choose(stock)}
+              className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors cursor-pointer ${
+                i === highlighted
+                  ? 'bg-green-500/15 text-green-400'
+                  : selectedStock?.symbol === stock.symbol
+                    ? 'bg-green-500/10 text-green-400'
+                    : 'text-gray-300 hover:bg-white/5'
               }`}
             >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold"
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0"
                   style={{ backgroundColor: 'rgba(0, 230, 118, 0.1)', color: '#00e676' }}>
                   {stock.symbol.slice(0, 2)}
                 </div>
-                <div>
-                  <div className="text-sm font-medium">{stock.symbol}</div>
-                  <div className="text-xs text-gray-500">{stock.name}</div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium truncate">{stock.symbol}</div>
+                  <div className="text-xs text-gray-500 truncate">{stock.name}</div>
                 </div>
               </div>
-              <span className="text-xs px-2 py-0.5 rounded-full"
+              <span className="text-xs px-2 py-0.5 rounded-full flex-shrink-0 max-w-[7rem] truncate"
                 style={{ backgroundColor: 'rgba(30, 45, 61, 0.5)', color: '#94a3b8' }}>
                 {stock.sector || 'NSE'}
               </span>
