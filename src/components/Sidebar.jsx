@@ -14,6 +14,7 @@ import {
   Gauge,
   Zap,
   CandlestickChart,
+  FileSearch,
 } from 'lucide-react';
 
 const menuItems = [
@@ -22,6 +23,7 @@ const menuItems = [
   { icon: Zap, label: 'Intraday', id: 'intraday' },
   { icon: CandlestickChart, label: 'Swing', id: 'swing' },
   { icon: BarChart3, label: 'Screener', id: 'screener' },
+  { icon: FileSearch, label: 'Market Analysis', id: 'analysis' },
   { icon: Layers, label: 'Multi-Chart', id: 'multichart' },
   { icon: PlayCircle, label: 'Watchlist', id: 'watchlist' },
   { icon: Wallet, label: 'Portfolio', id: 'portfolio' },

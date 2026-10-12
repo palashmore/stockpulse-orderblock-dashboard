@@ -4,6 +4,7 @@ import { runScan, presetCriteria, DEFAULT_CRITERIA, PRESETS, NEAR_EDGE } from '.
 import { NIFTY_STOCKS } from '../data/stockData';
 import { STATUS_META } from '../data/dataStatus';
 import { UnavailableState } from './DataStatusBadge';
+import DailyScreener from './DailyScreener';
 
 const SECTORS = Object.fromEntries(NIFTY_STOCKS.map((s) => [s.symbol, s.sector]));
 const GREEN = '#00e676';
@@ -46,7 +47,7 @@ function Toggle({ label, checked, onChange }) {
   );
 }
 
-export default function ScannerPanel({ nifty, onSelectStock }) {
+function MovesScanner({ nifty, onSelectStock }) {
   const { quotes, status, failed, loaded, retry } = nifty;
   const [criteria, setCriteria] = useState(DEFAULT_CRITERIA);
   const [preset, setPreset] = useState(null);
@@ -187,6 +188,21 @@ export default function ScannerPanel({ nifty, onSelectStock }) {
         Relative volume compares today&apos;s volume with the 3-month daily average, so it reads low early in the session.
         A stock missing a field never matches a rule that needs it. Click a row to open its chart. This describes today&apos;s moves; it is not a recommendation.
       </p>
+    </div>
+  );
+}
+
+// Two views over the Nifty 50: today's quote-based moves, and a screener on daily indicators and setups
+export default function ScannerPanel({ nifty, onSelectStock }) {
+  const [view, setView] = useState('moves');
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex gap-1 px-4 py-2 flex-shrink-0" style={{ backgroundColor: '#0a0e17', borderBottom: '1px solid rgba(30, 45, 61, 0.3)' }}>
+        {[['moves', "Today's moves"], ['daily', 'Daily analysis']].map(([id, label]) => (
+          <button key={id} onClick={() => setView(id)} className={`px-3 py-1 text-xs rounded cursor-pointer ${view === id ? 'bg-green-500/15 text-green-400' : 'text-gray-500 hover:text-gray-300'}`}>{label}</button>
+        ))}
+      </div>
+      {view === 'moves' ? <MovesScanner nifty={nifty} onSelectStock={onSelectStock} /> : <DailyScreener onSelectStock={onSelectStock} />}
     </div>
   );
 }

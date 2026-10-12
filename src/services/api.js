@@ -44,9 +44,9 @@ export async function fetchQuote(symbol) {
 }
 
 // Get historical candle data: { candles, dataStatus, asOf, provider, ... }
-export async function fetchHistory(symbol, range = '6mo', interval = '1d') {
+export async function fetchHistory(symbol, range = '6mo', interval = '1d', { bulk = false } = {}) {
   const data = await apiFetch(
-    `/history/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`
+    `/history/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}${bulk ? '&bulk=1' : ''}`
   );
   return data?.candles?.length ? data : null;
 }

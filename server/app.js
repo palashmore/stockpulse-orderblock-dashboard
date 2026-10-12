@@ -538,12 +538,15 @@ export function createApp({
     }
     const intraday = isIntradayInterval(interval);
     const yahooSymbol = symbol.includes('.') ? symbol : `${symbol}.NS`;
+    // Bulk callers (the screener loading dozens of stocks) skip the broker feed so they cannot use up
+    // the broker's request budget; they get Yahoo data under a separate cache key.
+    const bulk = req.query.bulk === '1';
 
     await serve(res, 'History', {
-      key: `history_${yahooSymbol}_${range}_${interval}`,
+      key: `history_${yahooSymbol}_${range}_${interval}${bulk ? '_bulk' : ''}`,
       policy: intraday ? POLICY.historyIntraday : POLICY.history,
       load: async () => {
-        const viaBroker = await brokerHistory(symbol, range, interval);
+        const viaBroker = bulk ? null : await brokerHistory(symbol, range, interval);
         if (viaBroker) return viaBroker;
         const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=${range}&interval=${interval}&includeAdjustedClose=true`;
         const data = await fetchJson(url, YAHOO_HEADERS);

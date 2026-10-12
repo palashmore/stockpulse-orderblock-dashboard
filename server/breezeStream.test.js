@@ -283,6 +283,14 @@ describe('server integration', () => {
     expect(q.body.price).toBe(1500); // REST value, not the untrusted tick
   });
 
+  it('bulk history requests never touch the broker budget', async () => {
+    await start({ yahoo: () => new Response(JSON.stringify({ chart: { result: [{ meta: { gmtoffset: 19800 }, timestamp: [Math.floor(Date.UTC(2026, 9, 9, 4, 0) / 1000)], indicators: { quote: [{ open: [1], high: [2], low: [1], close: [2], volume: [1] }], adjclose: [{ adjclose: [2] }] } }] } }), { headers: { 'content-type': 'application/json' } }) });
+    const before = breeze.budget().dayUsed;
+    const bulk = await get('/history/RELIANCE?range=6mo&interval=1d&bulk=1');
+    expect(bulk.body.provider).toBe('Yahoo Finance');
+    expect(breeze.budget().dayUsed).toBe(before);
+  });
+
   it('streams ticks to a browser as server-sent events and releases the subscription on close', async () => {
     await start();
     sockets[0].fire('connect');
