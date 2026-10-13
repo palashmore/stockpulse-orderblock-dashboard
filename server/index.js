@@ -1,10 +1,13 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { createFileAlertStore, createNotifier } from './alertEngine.js';
 
 const PORT = process.env.PORT || 3001;
 const ALERTS_FILE = process.env.ALERTS_FILE || 'data/alerts.json';
 const notifier = createNotifier(process.env);
-const { app, refreshNSECookies, alerts } = createApp({ alertStore: createFileAlertStore(ALERTS_FILE), alertNotifier: notifier });
+const STATIC_DIR = process.env.STATIC_DIR || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+const { app, refreshNSECookies, alerts } = createApp({ alertStore: createFileAlertStore(ALERTS_FILE), alertNotifier: notifier, staticDir: STATIC_DIR });
 
 const server = app.listen(PORT, () => {
   console.log(`\n  🚀 StockPulse API Server running at http://localhost:${PORT}`);

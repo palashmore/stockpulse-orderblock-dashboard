@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
 import { createCache } from './cache.js';
@@ -124,6 +126,7 @@ export function createApp({
   alertStore = createMemoryAlertStore(), // server/index.js passes a file-backed store
   alertNotifier = null,
   alertIntervalMs = 60_000, // how often the server checks alerts once alerts.start() is called
+  staticDir = null, // folder with the built app (index.html); server/index.js passes dist/ in production
   ipoDetailWaitMs = Number(process.env.IPO_DETAIL_WAIT_MS) || 12_000, // how long the IPO list waits for NSE's per-issue pages
 } = {}) {
   const app = express();
@@ -832,7 +835,10 @@ export function createApp({
   });
 
   // ---- broker sign-in (local machine only: these endpoints change which account feeds the app)
-  const isLoopback = (req) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
+  // A request relayed by a reverse proxy on the same machine arrives from 127.0.0.1 too, so a loopback address alone proves
+  // nothing: proxies add forwarding headers, and any request carrying them is treated as remote.
+  const isLoopback = (req) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)
+    && !req.headers['x-forwarded-for'] && !req.headers['x-forwarded-host'] && !req.headers.forwarded && !req.headers['x-real-ip'];
   const localOnly = (req, res, next) => (isLoopback(req)
     ? next()
     : res.status(403).json({ error: 'Broker sign-in is only available from the machine running the server' }));
@@ -1360,6 +1366,23 @@ export function createApp({
     await ensureHolidays();
     res.json(marketAt(now()));
   });
+
+  // ---- the built app (dist/), so one process can serve both the site and the API. Used when dist/ exists (production).
+  if (staticDir && fs.existsSync(path.join(staticDir, 'index.html'))) {
+    const index = path.join(staticDir, 'index.html');
+    // The service worker and the page shell must always be revalidated; hashed assets can be cached for a year
+    app.use(express.static(staticDir, {
+      index: false,
+      setHeaders(res, file) {
+        if (/[\\/]assets[\\/]/.test(file)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        else res.setHeader('Cache-Control', 'no-cache');
+      },
+    }));
+    app.get(/^\/(?!api(\/|$)).*/, (req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.sendFile(index);
+    });
+  }
 
   return { app, refreshNSECookies, breeze, streamHub, alerts };
 }

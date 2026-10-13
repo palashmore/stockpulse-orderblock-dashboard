@@ -147,12 +147,15 @@ npm run build && npm run preview:all
 
 ## 📦 Production Build & Deploy
 
+See **[DEPLOY.md](DEPLOY.md)** for the full guide (own computer, Docker, Render, Vercel), environment variables and what does not work from outside the server machine.
+
+
 ```bash
 # Build production bundle
 npm run build
 
-# Deploy to Vercel
-npx vercel --prod
+# Serve the app and the API from one process (port 3001)
+npm start
 ```
 
 ---
