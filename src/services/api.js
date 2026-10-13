@@ -128,8 +128,16 @@ export async function fetchMarketStatus() {
 }
 
 // Broker sign-in (server runs on this machine; these calls are loopback-only)
+// Resolves the status, { remote: true } when the server refused because this page is not on the server's own machine
+// (a hosted copy), or null when the server cannot be reached.
 export async function fetchAuthStatus() {
-  return await apiFetch('/auth/status');
+  try {
+    const response = await fetch(`${API_BASE}/auth/status`, { cache: 'no-store', signal: AbortSignal.timeout(10000) });
+    if (response.status === 403) return { remote: true };
+    return response.ok ? await response.json() : null;
+  } catch {
+    return null;
+  }
 }
 
 // Resolves { connected } on success or { connected: false, error } with the server's reason

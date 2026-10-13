@@ -70,7 +70,7 @@ export default function SettingsPanel({ demoMode, headlineStatus, onConnectionCh
       <section className="rounded-md px-4 py-3 max-w-2xl" style={card}>
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-medium text-gray-200">ICICI Direct (Breeze API)</h3>
-          {auth && (
+          {auth && !auth.remote && (
             <span className="text-[10px] font-medium" style={{ color: auth.connected ? '#00e676' : '#64748b' }}>
               {auth.connected ? 'SIGNED IN' : 'NOT SIGNED IN'}
             </span>
@@ -82,7 +82,14 @@ export default function SettingsPanel({ demoMode, headlineStatus, onConnectionCh
           <p className="text-xs" style={{ color: '#ff1744' }}>The StockPulse server is not reachable, or this page is not running on the same machine as the server.</p>
         )}
 
-        {auth && !auth.configured && (
+        {auth?.remote && (
+          <div className="text-xs text-gray-400 space-y-2">
+            <p>Broker sign-in is not available on this address. For safety it works only when StockPulse runs on your own computer (<code className="text-gray-300">npm start</code>, then open <code className="text-gray-300">http://localhost:3001</code>).</p>
+            <p>This hosted copy needs no sign-in: every screen already uses delayed Yahoo Finance data, labelled as such. Portfolio, order books and server alerts need the local copy.</p>
+          </div>
+        )}
+
+        {auth && !auth.remote && !auth.configured && (
           <div className="text-xs text-gray-400 space-y-2">
             <p>No API key is set up yet. To use your ICICI Direct account as the data source:</p>
             <ol className="list-decimal ml-5 space-y-1">
@@ -93,7 +100,7 @@ export default function SettingsPanel({ demoMode, headlineStatus, onConnectionCh
           </div>
         )}
 
-        {auth && auth.configured && !auth.connected && (
+        {auth && !auth.remote && auth.configured && !auth.connected && (
           <div className="text-xs text-gray-400 space-y-3">
             <p>Signing in is optional. Without it every screen works with delayed Yahoo Finance data, labelled as such. Signing in adds ICICI Direct quotes for supported stocks, your portfolio and order books. Sign in once each day; the session expires overnight.</p>
             <ol className="list-decimal ml-5 space-y-1">
@@ -125,7 +132,7 @@ export default function SettingsPanel({ demoMode, headlineStatus, onConnectionCh
           </div>
         )}
 
-        {auth && auth.connected && (
+        {auth && !auth.remote && auth.connected && (
           <div className="text-xs text-gray-400 space-y-2">
             <p>
               Signed in{auth.connectedAt ? ` at ${new Date(auth.connectedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}.
