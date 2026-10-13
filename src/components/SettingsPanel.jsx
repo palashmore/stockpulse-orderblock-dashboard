@@ -95,7 +95,7 @@ export default function SettingsPanel({ demoMode, headlineStatus, onConnectionCh
 
         {auth && auth.configured && !auth.connected && (
           <div className="text-xs text-gray-400 space-y-3">
-            <p>Sign in once each day. The session expires overnight.</p>
+            <p>Signing in is optional. Without it every screen works with delayed Yahoo Finance data, labelled as such. Signing in adds ICICI Direct quotes for supported stocks, your portfolio and order books. Sign in once each day; the session expires overnight.</p>
             <ol className="list-decimal ml-5 space-y-1">
               <li>
                 <a href={auth.loginUrl} target="_blank" rel="noreferrer" className="underline" style={{ color: '#00e5ff' }}>Open the ICICI Direct sign-in page</a>{' '}

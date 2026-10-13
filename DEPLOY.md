@@ -1,8 +1,7 @@
 # Deploying StockPulse
 
 StockPulse is **one Node process**: the Express server serves the built app (`dist/`) and the API (`/api`). It also runs your
-price alerts on a timer, so it needs a host that keeps a process running. A static host (Vercel, Netlify) can serve only the
-screens, not the API or the alerts (see option 3).
+price alerts on a timer, so it needs a host that keeps a process running. On Vercel the API runs as serverless functions instead (option 4), without alerts or broker sign-in.
 
 ## What you need first
 
@@ -63,15 +62,25 @@ Saved alerts live in the `stockpulse-data` volume and survive restarts. Update w
 
 Railway and Fly.io work the same way with the Dockerfile.
 
-## Option 4: Vercel (screens only)
+## Option 4: Vercel (no separate backend, no broker sign-in)
 
-`vercel.json` deploys the frontend. Vercel cannot run this server (no long-running process: alerts would not work), so the
-frontend needs an API hosted elsewhere (option 2 or 3):
+The `api/` folder runs the whole API as a Vercel serverless function next to the app, so **Vercel alone is enough** and nobody
+has to sign in to a broker. Quotes, charts, the dashboard, lists, scans, IPOs and index data work with Yahoo Finance and NSE
+data (delayed, and labelled that way).
 
-1. Deploy the server with option 2 or 3 and set `CORS_ORIGIN=https://your-app.vercel.app` on it.
-2. In Vercel: **Add New Project**, import the repository, and add the environment variable
-   `VITE_API_BASE=https://your-server.example.com/api` (it is read at build time).
-3. Deploy. Never add the Breeze key to Vercel: it belongs only on the server.
+1. vercel.com > **Add New Project** > import the repository. `vercel.json` sets the build (`VITE_API_BASE=/api`) and routes.
+2. Click **Deploy**. No environment variables are required.
+3. Open the address Vercel gives you and check `/api/health`.
+
+What a serverless host cannot do, by nature (use option 1, 2 or 3 for these):
+* **Server alerts and push notifications**: there is no always-on timer. The Alerts screen falls back to browser alerts
+  that run while the tab is open.
+* **ICICI Direct sign-in, live stream, portfolio, order books**: the sign-in lives in server memory, which a serverless
+  function loses between requests, and these routes answer only on a machine you control anyway.
+* Cached data and the NSE session are per function instance, so the first request after idle is slower.
+
+If you later want alerts or the portfolio too, host the server (option 2 or 3) and point the Vercel frontend at it with
+`VITE_API_BASE=https://your-server/api` plus `CORS_ORIGIN=https://your-app.vercel.app` on the server.
 
 ## What does not work from outside the server machine (by design)
 

@@ -126,6 +126,7 @@ export function createApp({
   alertStore = createMemoryAlertStore(), // server/index.js passes a file-backed store
   alertNotifier = null,
   alertIntervalMs = 60_000, // how often the server checks alerts once alerts.start() is called
+  trustProxy = false, // behind a platform proxy (Vercel): use the visitor's address, not the proxy's, for rate limiting
   staticDir = null, // folder with the built app (index.html); server/index.js passes dist/ in production
   ipoDetailWaitMs = Number(process.env.IPO_DETAIL_WAIT_MS) || 12_000, // how long the IPO list waits for NSE's per-issue pages
 } = {}) {
@@ -166,6 +167,7 @@ export function createApp({
   let nseCookiesAt = 0;
 
   app.disable('x-powered-by');
+  if (trustProxy) app.set('trust proxy', true);
   // The browser can only read the X-Data-* status headers (used by /api/nifty50) if they are exposed
   const corsOptions = { exposedHeaders: ['X-Data-Status', 'X-Data-Provider', 'X-Data-Fetched-At', 'X-Data-As-Of', 'X-Data-Stale-Age-Sec'] };
   if (process.env.CORS_ORIGIN) corsOptions.origin = process.env.CORS_ORIGIN.split(',');

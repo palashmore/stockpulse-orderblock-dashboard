@@ -1,9 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
-  "buildCommand": "npm run build",
+  "buildCommand": "VITE_API_BASE=/api npm run build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/((?!assets/|sw.js|manifest.webmanifest|icon-|apple-touch-icon|favicon).*)", "destination": "/index.html" }],
+  "rewrites": [{ "source": "/((?!api/|assets/|sw.js|manifest.webmanifest|icon-|apple-touch-icon|favicon).*)", "destination": "/index.html" }],
+  "functions": { "api/[...path].js": { "maxDuration": 30 } },
   "headers": [
     { "source": "/assets/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] },
     { "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
