@@ -37,6 +37,14 @@ export default function DiagnosticsPanel() {
   }, []);
 
   if (data === undefined) return <p className="px-4 py-6 text-xs text-gray-500">Loading diagnostics…</p>;
+  if (data?.remote) {
+    return (
+      <div className="px-4 py-6 text-xs text-gray-400 space-y-2 max-w-2xl">
+        <p className="text-gray-200">API Diagnostics is not available on this address.</p>
+        <p>It shows the server&apos;s internals (request budget, live stream, recent errors), so for safety it answers only on the computer that runs the server. Run StockPulse locally (<code className="text-gray-300">npm start</code>, then open <code className="text-gray-300">http://localhost:3001</code>) to see it. This hosted copy is working normally: check <code className="text-gray-300">/api/health</code>.</p>
+      </div>
+    );
+  }
   if (data === null) {
     return <p className="px-4 py-6 text-xs" style={{ color: '#ff1744' }}>The StockPulse server is not reachable, or this page is not on the same machine as the server.</p>;
   }

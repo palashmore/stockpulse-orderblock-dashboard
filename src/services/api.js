@@ -196,8 +196,15 @@ export async function fetchPortfolio() {
 }
 
 // Server health, broker request budget and live-stream status (loopback-only on the server)
+// Resolves the diagnostics, { remote: true } when the server refuses because this page is not on its own machine, or null when unreachable.
 export async function fetchDiagnostics() {
-  return await apiFetch('/diagnostics');
+  try {
+    const response = await fetch(`${API_BASE}/diagnostics`, { cache: 'no-store', signal: AbortSignal.timeout(10000) });
+    if (response.status === 403) return { remote: true };
+    return response.ok ? await response.json() : null;
+  } catch {
+    return null;
+  }
 }
 
 // Read-only broker books (loopback-only on the server). Resolves the response body, or { error }.
