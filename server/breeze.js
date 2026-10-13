@@ -187,7 +187,22 @@ export function createBudget({ perMinute = 90, perDay = 4500, now = Date.now } =
   };
 }
 
-export function createBreezeClient({ appKey, secret, request = httpsRequest, now = Date.now, budget = createBudget({ now }) } = {}) {
+const TRANSIENT_NETWORK = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE']);
+
+/** True for failures where no answer came back (a DNS or connection problem), as opposed to ICICI refusing a request. */
+export function isTransientNetworkError(error) {
+  return TRANSIENT_NETWORK.has(error?.code) || /timed out/i.test(String(error?.message ?? ''));
+}
+
+/** Plain-words version of a network failure, for the screen. */
+export function describeNetworkError(error) {
+  const code = error?.code ?? '';
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'This computer could not look up api.icicidirect.com (a DNS or internet problem). Check the internet connection or hotspot, then try again';
+  if (code === 'ECONNREFUSED' || code === 'ECONNRESET' || code === 'ENETUNREACH' || code === 'EHOSTUNREACH') return 'This computer could not connect to ICICI Direct. Check the internet connection, then try again';
+  return 'The request to ICICI Direct timed out. Check the internet connection, then try again';
+}
+
+export function createBreezeClient({ appKey, secret, request = httpsRequest, now = Date.now, budget = createBudget({ now }), retryDelaysMs = [500, 1500, 3000] } = {}) {
   let sessionToken = null;
   let connectedAt = null;
   let rejectedInARow = 0;
@@ -214,7 +229,19 @@ export function createBreezeClient({ appKey, secret, request = httpsRequest, now
       headers['X-AppKey'] = appKey;
       headers['X-SessionToken'] = sessionToken;
     }
-    const res = await request({ method, path: `${BASE_PATH}/${endpoint}`, headers, body });
+    // A dropped connection or failed DNS lookup is retried a few times (all Breeze calls here are reads, so repeating
+    // one is safe). A refusal from ICICI is an answer, not a network failure, and is never retried.
+    let res;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        res = await request({ method, path: `${BASE_PATH}/${endpoint}`, headers, body });
+        break;
+      } catch (error) {
+        if (!isTransientNetworkError(error)) throw error;
+        if (attempt >= retryDelaysMs.length) throw new Error(describeNetworkError(error));
+        await new Promise((resolve) => setTimeout(resolve, retryDelaysMs[attempt]));
+      }
+    }
     const rejected = res.status === 401 || res.status === 403 || (res.json && String(res.json.Status) === '401');
     if (authenticated && rejected) {
       // A single HTTP 401/403 is not proof the session is dead (ICICI has returned one on a busy moment

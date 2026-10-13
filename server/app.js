@@ -8,6 +8,8 @@ import {
   classifyHistoryStatus,
   classifyLiveQuoteStatus,
   classifyLiveHistoryStatus,
+  classifyClosedMarketData,
+  MAX_IN_SESSION_AGE_MS,
   parseNseTimestamp,
 } from './dataStatus.js';
 import { buildOptionsChain } from './options.js';
@@ -25,6 +27,7 @@ import { createStreamHub, quoteKey } from './breezeStream.js';
 import { createAlertEngine, createMemoryAlertStore } from './alertEngine.js';
 import { buildIpos, needsDetail } from './ipo.js';
 import { parseGmpPage } from './ipoGmp.js';
+import { parseAllIndices, matchIndexLevels } from './indexLevels.js';
 import { parseNseHolidays, getMarketState, markPartialCandles } from './marketCalendar.js';
 import { createRateLimiter, createConcurrencyLimiter } from './limits.js';
 import {
@@ -59,6 +62,7 @@ const POLICY = {
   historyIntraday: { ttl: 60 * 1000, maxStale: 60 * MINUTE },
   ipos: { ttl: 10 * MINUTE, maxStale: 24 * 60 * MINUTE },
   ipoGmp: { ttl: 15 * MINUTE, maxStale: 6 * 60 * MINUTE },
+  indexLevels: { ttl: 60 * 1000, maxStale: 6 * 60 * MINUTE },
   ipoDetailOpen: { ttl: 5 * MINUTE, maxStale: 6 * 60 * MINUTE }, // open or forthcoming: subscription changes by the minute
   ipoDetailDone: { ttl: 6 * 60 * MINUTE, maxStale: 48 * 60 * MINUTE },
 };
@@ -1291,6 +1295,31 @@ export function createApp({
 
   app.get('/api/ipos', async (req, res) => {
     await serve(res, 'IPO list', { key: 'ipos', policy: POLICY.ipos, load: loadIpos });
+  });
+
+  // ---- index levels and day change for the configured NSE indices (NSE's allIndices feed). BSE indices are not covered.
+  app.get('/api/index-levels', async (req, res) => {
+    await serve(res, 'Index levels', {
+      key: 'index_levels',
+      policy: POLICY.indexLevels,
+      load: async () => {
+        const parsed = parseAllIndices(await nseJson('allIndices', 'https://www.nseindia.com/market-data/live-market-indices'));
+        if (parsed.rows.size === 0) throw new Error('NSE index feed had no usable rows');
+        const { byId, missing } = matchIndexLevels(INDEX_DEFS, parsed);
+        const nowMs = now();
+        const asOfMs = parseNseTimestamp(parsed.timestamp);
+        const market = marketAt(nowMs);
+        return {
+          body: { indices: byId, missing },
+          status: market.isOpen
+            ? (Number.isFinite(asOfMs) && nowMs - asOfMs > MAX_IN_SESSION_AGE_MS ? DATA_STATUS.STALE : DATA_STATUS.DELAYED)
+            : classifyClosedMarketData(asOfMs, market),
+          provider: 'NSE India website',
+          fetchedAt: new Date(nowMs).toISOString(),
+          asOf: Number.isFinite(asOfMs) ? new Date(asOfMs).toISOString() : null,
+        };
+      },
+    });
   });
 
   app.get('/api/market-status', async (req, res) => {

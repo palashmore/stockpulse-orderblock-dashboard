@@ -71,6 +71,8 @@ describe('data status', () => {
   it('parses NSE timestamps as IST', () => {
     expect(parseNseTimestamp('12-Oct-2026 10:58:00')).toBe(Date.UTC(2026, 9, 12, 5, 28));
     expect(parseNseTimestamp('garbage')).toBeNull();
+    expect(parseNseTimestamp('12-Oct-2026 15:30')).toBe(Date.UTC(2026, 9, 12, 10, 0)); // no seconds (allIndices)
+    expect(parseNseTimestamp('12-Oct-2026')).toBe(Date.UTC(2026, 9, 11, 18, 30));
     expect(parseNseTimestamp(undefined)).toBeNull();
   });
 

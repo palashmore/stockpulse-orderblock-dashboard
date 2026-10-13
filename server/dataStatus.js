@@ -89,7 +89,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 /** Parse NSE's "DD-Mon-YYYY HH:mm:ss" (IST) timestamp to epoch ms, or null. */
 export function parseNseTimestamp(text) {
-  const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})(?:\s+(\d{2}):(\d{2}):(\d{2}))?$/.exec(String(text || '').trim());
+  const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(String(text || '').trim());
   if (!m) return null;
   const month = MONTHS.findIndex((n) => n.toLowerCase() === m[2].toLowerCase());
   if (month < 0) return null;
