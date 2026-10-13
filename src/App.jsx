@@ -400,7 +400,7 @@ export default function App() {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <MarketDashboard onSelectStock={openStockFromOverview} demoMode={demoMode} />;
+        return <MarketDashboard onSelectStock={openStockFromOverview} demoMode={demoMode} market={marketStatus} />;
       case 'orderblock':
         return renderDashboard();
       case 'screener':

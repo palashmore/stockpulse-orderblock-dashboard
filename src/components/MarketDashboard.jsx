@@ -2,6 +2,8 @@ import { useCallback, useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import IndexSelect from './IndexSelect';
 import MarketBoards from './MarketBoards';
+import DiscoveryTabs from './DiscoveryTabs';
+import StockQuickView from './StockQuickView';
 import { UnavailableState } from './DataStatusBadge';
 import { useUniverseSelection, useUniverseStocks } from '../hooks/useUniverse';
 import { useQuotesBatch } from '../hooks/useQuotesBatch';
@@ -11,9 +13,10 @@ import { rankStocks } from '../data/ranking';
 import { buildBoards, loadBoardConfig, saveBoardConfig } from '../data/boards';
 import { binDots, DOT_AXIS_LIMIT } from '../data/marketOverview';
 import { STATUS_META } from '../data/dataStatus';
+import { loadView, saveView } from '../data/discovery';
 import {
   DEFAULT_FILTERS, REL_VOL_OPTIONS, SIGNAL_OPTIONS, buildRows, signalMap, filtersActive, filterRows, sectorsOf, universeStats,
-  indexCards, coverageLine, dotLayout, byAbsMove,
+  indexCards, coverageLine, dotLayout,
 } from '../data/dashboardView';
 
 const GREEN = '#00e676';
@@ -101,18 +104,26 @@ function DotPlot({ dots, size, step, onSelect, onHover, hovered }) {
   );
 }
 
-export default function MarketDashboard({ onSelectStock, demoMode = false }) {
+export default function MarketDashboard({ onSelectStock, demoMode = false, market = null }) {
   const selection = useUniverseSelection();
   const { stocks, labels, failedIds, loading } = useUniverseStocks(selection.universe);
   const symbols = useMemo(() => (stocks ? stocks.map((s) => s.symbol) : []), [stocks]);
   const quotes = useQuotesBatch(symbols, !demoMode);
   const levels = useIndexLevels(!demoMode);
 
-  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [view, setViewState] = useState(() => loadView(window.localStorage));
+  const [quick, setQuick] = useState(null); // { stock, target } while the quick-view panel is open
+  const filters = view.filters;
+  const updateView = useCallback((patch) => {
+    setViewState((v) => {
+      const next = { ...v, ...patch };
+      saveView(next, window.localStorage);
+      return next;
+    });
+  }, []);
   const scanOn = true; // the boards and the signal filter both need each stock's daily history
   const [boardConfig, setBoardConfig] = useState(() => loadBoardConfig(window.localStorage));
   const [hovered, setHovered] = useState(null);
-  const [showAll, setShowAll] = useState(false);
 
   const scanStocks = useMemo(() => (stocks ? stocks.slice(0, MAX_SCAN) : []), [stocks]);
   const scan = useScreenerData(scanStocks, scanOn);
@@ -132,13 +143,15 @@ export default function MarketDashboard({ onSelectStock, demoMode = false }) {
   const dots = useMemo(() => binDots(filtered.rows), [filtered.rows]);
   const bySymbol = useMemo(() => new Map(rows.map((r) => [r.symbol, r])), [rows]);
   const cards = useMemo(() => indexCards(selection.universe, labels, levels.levels), [selection.universe, labels, levels.levels]);
-  const listed = useMemo(() => byAbsMove(filtered.rows), [filtered.rows]);
 
+  // Every click on a stock opens the quick view first; "Open full chart" there goes to the chart with the stock selected.
   const open = (symbol) => {
     const r = bySymbol.get(symbol);
-    if (r) onSelectStock({ symbol: r.symbol, name: r.name, sector: r.sector === 'Unclassified' ? '' : r.sector });
+    if (r) setQuick({ stock: { symbol: r.symbol, name: r.name, sector: r.sector === 'Unclassified' ? '' : r.sector }, target: 'orderblock' });
   };
-  const set = (patch) => { setFilters((f) => ({ ...f, ...patch })); setShowAll(false); };
+  const openStock = useCallback((stock, target = 'orderblock') => setQuick({ stock, target }), []);
+  const goToChart = useCallback((stock, tab) => { setQuick(null); onSelectStock(stock, tab); }, [onSelectStock]);
+  const set = (patch) => { updateView({ filters: { ...view.filters, ...patch } }); };
   const setSignal = (signal) => set({ signal });
 
   const maxLevel = dots.reduce((m, d) => Math.max(m, d.level), 0);
@@ -184,7 +197,6 @@ export default function MarketDashboard({ onSelectStock, demoMode = false }) {
   }
 
   const maxAbs = Math.max(0.5, ...stats.sectors.sectors.map((s) => Math.abs(s.avgChangePct)));
-  const shown = showAll ? listed : listed.slice(0, 25);
   const active = filtersActive(filters);
 
   return (
@@ -255,7 +267,7 @@ export default function MarketDashboard({ onSelectStock, demoMode = false }) {
             </select>
           </label>
           {active && (
-            <button onClick={() => { setFilters(DEFAULT_FILTERS); setShowAll(false); }} className="px-2 py-1 text-xs rounded cursor-pointer bg-white/5 text-gray-300 hover:bg-white/10">Reset filters</button>
+            <button onClick={() => updateView({ filters: DEFAULT_FILTERS })} className="px-2 py-1 text-xs rounded cursor-pointer bg-white/5 text-gray-300 hover:bg-white/10">Reset filters</button>
           )}
         </div>
         <div className="px-4 pb-2 text-[11px] text-gray-500 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -286,42 +298,16 @@ export default function MarketDashboard({ onSelectStock, demoMode = false }) {
         )}
       </section>
 
-      {filtered.rows.length > 0 && (
-        <section style={{ borderTop: '1px solid rgba(30, 45, 61, 0.3)' }}>
-          <h3 className="px-4 pt-3 pb-1 text-[11px] text-gray-500 uppercase tracking-wider">Biggest moves in this view</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-[10px] text-gray-600 uppercase tracking-wider">
-                  {['Stock', 'Price', 'Day', 'Rel vol', 'Sector', ...(scanOn ? ['Signal'] : [])].map((h, i) => (
-                    <th key={h} className={`px-3 py-1.5 font-normal ${i === 0 || i >= 4 ? 'text-left' : 'text-right'}`}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {shown.map((r) => (
-                  <tr key={r.symbol} onClick={() => open(r.symbol)} className="cursor-pointer hover:bg-white/5" style={{ borderTop: '1px solid rgba(30, 45, 61, 0.2)' }} title="Open chart">
-                    <td className="px-3 py-1.5">
-                      <div className="font-medium text-gray-200">{r.symbol}</div>
-                      <div className="text-[10px] text-gray-600 truncate max-w-[14rem]">{r.name}</div>
-                    </td>
-                    <td className="px-3 py-1.5 text-right font-mono text-gray-300">{px(r.price)}</td>
-                    <td className="px-3 py-1.5 text-right font-mono" style={{ color: tone(r.changePct) }}>{pct(r.changePct)}</td>
-                    <td className="px-3 py-1.5 text-right font-mono text-gray-400">{Number.isFinite(r.relVolume) ? `${r.relVolume.toFixed(1)}x` : '—'}</td>
-                    <td className="px-3 py-1.5 text-gray-400">{r.sector}</td>
-                    {scanOn && <td className="px-3 py-1.5 text-gray-400">{signals.has(r.symbol) ? SIGNAL_TEXT[signals.get(r.symbol)] : 'not scanned'}</td>}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {listed.length > 25 && (
-            <button onClick={() => setShowAll((v) => !v)} className="mx-4 my-2 px-2 py-1 text-[11px] rounded cursor-pointer bg-white/5 text-gray-300 hover:bg-white/10">
-              {showAll ? 'Show fewer' : `Show all ${listed.length}`}
-            </button>
-          )}
-        </section>
-      )}
+      <DiscoveryTabs
+        rows={filtered.rows}
+        stocks={stocks}
+        scan={scan}
+        market={market}
+        view={view}
+        onView={updateView}
+        onOpen={openStock}
+        lastSession={market?.lastSession ?? null}
+      />
 
       <section className="py-3" style={{ borderTop: '1px solid rgba(30, 45, 61, 0.3)' }}>
         <h3 className="px-4 pb-2 text-[11px] text-gray-500 uppercase tracking-wider">Sector performance (equal-weighted average of the selected stocks)</h3>
@@ -364,6 +350,7 @@ export default function MarketDashboard({ onSelectStock, demoMode = false }) {
         Relative volume is today's volume against the 3-month daily average, so it reads low early in the session.
         Dots beyond ±{DOT_AXIS_LIMIT}% are pinned to the edge (faded).
       </p>
+      {quick && <StockQuickView key={quick.stock.symbol} stock={quick.stock} row={bySymbol.get(quick.stock.symbol)} market={market} onClose={() => setQuick(null)} onOpen={goToChart} />}
     </div>
   );
 }
