@@ -334,3 +334,205 @@ export function alignCompleted(fast, slow, completeBefore) {
   }
   return out;
 }
+
+/**
+ * Supertrend (ATR-based trend follower).
+ * Defaults: period = 10, multiplier = 3.
+ * Returns: { supertrend, direction (1 = bullish/green, -1 = bearish/red), upperBand, lowerBand }
+ */
+export function supertrend(candles, period = 10, multiplier = 3) {
+  const n = candles.length;
+  const out = {
+    supertrend: nulls(n),
+    direction: nulls(n),
+    upperBand: nulls(n),
+    lowerBand: nulls(n),
+  };
+  if (n < period) return out;
+
+  const atrVals = atr(candles, period);
+  let prevUpper = null;
+  let prevLower = null;
+  let prevTrend = 1;
+
+  for (let i = period - 1; i < n; i++) {
+    const c = candles[i];
+    const prevC = candles[i - 1];
+    const atVal = atrVals[i];
+    if (!isNum(atVal)) continue;
+
+    const hl2 = (c.high + c.low) / 2;
+    const basicUpper = hl2 + multiplier * atVal;
+    const basicLower = hl2 - multiplier * atVal;
+
+    let finalUpper = basicUpper;
+    let finalLower = basicLower;
+
+    if (prevUpper !== null) {
+      if (basicUpper < prevUpper || (prevC && prevC.close > prevUpper)) {
+        finalUpper = basicUpper;
+      } else {
+        finalUpper = prevUpper;
+      }
+    }
+
+    if (prevLower !== null) {
+      if (basicLower > prevLower || (prevC && prevC.close < prevLower)) {
+        finalLower = basicLower;
+      } else {
+        finalLower = prevLower;
+      }
+    }
+
+    let trend = prevTrend;
+    if (prevTrend === 1) {
+      if (c.close < finalLower) {
+        trend = -1;
+      }
+    } else {
+      if (c.close > finalUpper) {
+        trend = 1;
+      }
+    }
+
+    out.upperBand[i] = finalUpper;
+    out.lowerBand[i] = finalLower;
+    out.direction[i] = trend;
+    out.supertrend[i] = trend === 1 ? finalLower : finalUpper;
+
+    prevUpper = finalUpper;
+    prevLower = finalLower;
+    prevTrend = trend;
+  }
+
+  return out;
+}
+
+/**
+ * Bollinger Bands (defaults: period = 20, multiplier = 2).
+ * Returns: { upper, middle, lower, bandwidth, percentB }
+ */
+export function bollingerBands(candles, period = 20, multiplier = 2) {
+  const n = candles.length;
+  const out = {
+    upper: nulls(n),
+    middle: nulls(n),
+    lower: nulls(n),
+    bandwidth: nulls(n),
+    percentB: nulls(n),
+  };
+  if (n < period) return out;
+
+  const mid = smaOfCloses(candles, period);
+
+  for (let i = period - 1; i < n; i++) {
+    const m = mid[i];
+    if (!isNum(m)) continue;
+
+    let sumSq = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      sumSq += Math.pow(candles[j].close - m, 2);
+    }
+    const stdDev = Math.sqrt(sumSq / period);
+    const u = m + multiplier * stdDev;
+    const l = m - multiplier * stdDev;
+    const c = candles[i].close;
+
+    out.middle[i] = m;
+    out.upper[i] = u;
+    out.lower[i] = l;
+    out.bandwidth[i] = m !== 0 ? (u - l) / m : 0;
+    out.percentB[i] = u !== l ? (c - l) / (u - l) : 0.5;
+  }
+
+  return out;
+}
+
+/**
+ * RSI Divergence detector.
+ * Identifies Regular Bullish (reversal up) and Regular Bearish (reversal down) divergences.
+ */
+export function rsiDivergences(candles, period = 14, lookback = 30) {
+  const rsiVals = rsi(candles, period);
+  const divs = [];
+  const piv = pivots(candles, 2, 2);
+
+  // Bullish divergence: price makes Lower Low, RSI makes Higher Low
+  for (let k = 1; k < piv.lows.length; k++) {
+    const curPiv = piv.lows[k];
+    const prevPiv = piv.lows[k - 1];
+    if (curPiv.index - prevPiv.index > lookback || curPiv.index - prevPiv.index < 3) continue;
+
+    const price1 = prevPiv.price;
+    const price2 = curPiv.price;
+    const rsi1 = rsiVals[prevPiv.index];
+    const rsi2 = rsiVals[curPiv.index];
+
+    if (isNum(rsi1) && isNum(rsi2)) {
+      if (price2 < price1 && rsi2 > rsi1 + 1.5) {
+        divs.push({
+          type: 'bullish',
+          index: curPiv.index,
+          confirmedAt: curPiv.confirmedAt,
+          price: price2,
+          rsi: rsi2,
+          prevPrice: price1,
+          prevRsi: rsi1,
+          strength: Math.min(100, Math.round((rsi2 - rsi1) * 5 + ((price1 - price2) / price1) * 100)),
+        });
+      }
+    }
+  }
+
+  // Bearish divergence: price makes Higher High, RSI makes Lower High
+  for (let k = 1; k < piv.highs.length; k++) {
+    const curPiv = piv.highs[k];
+    const prevPiv = piv.highs[k - 1];
+    if (curPiv.index - prevPiv.index > lookback || curPiv.index - prevPiv.index < 3) continue;
+
+    const price1 = prevPiv.price;
+    const price2 = curPiv.price;
+    const rsi1 = rsiVals[prevPiv.index];
+    const rsi2 = rsiVals[curPiv.index];
+
+    if (isNum(rsi1) && isNum(rsi2)) {
+      if (price2 > price1 && rsi2 < rsi1 - 1.5) {
+        divs.push({
+          type: 'bearish',
+          index: curPiv.index,
+          confirmedAt: curPiv.confirmedAt,
+          price: price2,
+          rsi: rsi2,
+          prevPrice: price1,
+          prevRsi: rsi1,
+          strength: Math.min(100, Math.round((rsi1 - rsi2) * 5 + ((price2 - price1) / price1) * 100)),
+        });
+      }
+    }
+  }
+
+  return divs;
+}
+
+/**
+ * Stochastic Oscillator (%K, %D).
+ * Defaults: kPeriod = 14, kSmooth = 3, dPeriod = 3.
+ */
+export function stochastic(candles, kPeriod = 14, kSmooth = 3, dPeriod = 3) {
+  const n = candles.length;
+  const rawK = nulls(n);
+  for (let i = kPeriod - 1; i < n; i++) {
+    let minLow = Infinity;
+    let maxHigh = -Infinity;
+    for (let j = i - kPeriod + 1; j <= i; j++) {
+      if (candles[j].low < minLow) minLow = candles[j].low;
+      if (candles[j].high > maxHigh) maxHigh = candles[j].high;
+    }
+    const range = maxHigh - minLow;
+    rawK[i] = range === 0 ? 50 : ((candles[i].close - minLow) / range) * 100;
+  }
+  const k = sma(rawK, kSmooth);
+  const d = sma(k, dPeriod);
+  return { k, d };
+}
+

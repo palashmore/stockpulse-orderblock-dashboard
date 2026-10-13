@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, Star } from 'lucide-react';
+import { X, Star, ShieldAlert, Zap } from 'lucide-react';
 import TradingChart from './TradingChart';
-import { fetchHistory, createServerAlert } from '../services/api';
+import { fetchHistory, createServerAlert, executeBracketOrder } from '../services/api';
 import { useWatchlist } from '../hooks/useWatchlist';
 import { summariseStock } from '../data/quickView';
+import { calculateLongTermValueRange } from '../data/marketAnalysis';
 import { loadStrategyConfig } from '../data/strategyStore';
 import { STATUS_META } from '../data/dataStatus';
 
@@ -108,6 +109,13 @@ export default function StockQuickView({ stock, row, market, onClose, onOpen }) 
   const onDaily = daily.symbols.has(symbol);
   const onSwing = swingList.symbols.has(symbol);
   const lv = view?.levels;
+  const [orderBusy, setOrderBusy] = useState(false);
+  const [orderFeedback, setOrderFeedback] = useState(null);
+
+  const valueRange = useMemo(() => {
+    if (!view?.candles?.length) return null;
+    return calculateLongTermValueRange(view.candles, { price, pe: row?.pe });
+  }, [view?.candles, price, row?.pe]);
 
   return (
     <aside
@@ -166,6 +174,84 @@ export default function StockQuickView({ stock, row, market, onClose, onOpen }) 
 
           <Status title="Intraday status" status={view.intraday} />
           <Status title="Swing status" status={view.swing} />
+
+          {valueRange && (
+            <div className="px-4 py-2" style={rule}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider">Long-Term Value Range</span>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                  valueRange.status === 'ACCUMULATION' ? 'bg-green-500/20 text-green-400' :
+                  valueRange.status === 'OVERVALUED' ? 'bg-red-500/20 text-red-400' :
+                  'bg-blue-500/20 text-blue-400'
+                }`}>
+                  {valueRange.status === 'ACCUMULATION' ? 'BUY ZONE (ACCUMULATION)' :
+                   valueRange.status === 'OVERVALUED' ? 'OVERVALUED EXIT' : 'FAIR VALUE'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[11px] font-mono mt-1">
+                <div>
+                  <div className="text-[9px] text-gray-600 font-sans">Accumulation (Buy)</div>
+                  <div className="text-green-400">₹{valueRange.accumulationBuyRange.low} - ₹{valueRange.accumulationBuyRange.high}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] text-gray-600 font-sans">5Y Median Target</div>
+                  <div className="text-gray-300">₹{valueRange.fairValue} (P/E {valueRange.medianPe5Y})</div>
+                </div>
+                <div>
+                  <div className="text-[9px] text-gray-600 font-sans">Overvalued Exit</div>
+                  <div className="text-red-400">₹{valueRange.overvaluedSellRange.low}+</div>
+                </div>
+              </div>
+              <div className="mt-1 text-[10px] text-gray-500">
+                Weekly Support: ₹{valueRange.structuralSupport} · Major Resistance: ₹{valueRange.majorResistance} · RSI: {valueRange.rsi ?? '—'}
+              </div>
+            </div>
+          )}
+
+          {lv?.entry && (
+            <div className="px-4 py-2" style={rule}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                    <Zap size={11} className="text-green-400" /> One-Click Bracket Order
+                  </div>
+                  <div className="text-[11px] text-gray-400 font-mono">
+                    Buy @ ₹{lv.entry.toFixed(2)} · SL ₹{lv.stop?.toFixed(2)} · TP ₹{lv.target1?.toFixed(2)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setOrderBusy(true);
+                    setOrderFeedback(null);
+                    const res = await executeBracketOrder({
+                      symbol,
+                      side: 'BUY',
+                      quantity: 1,
+                      price: lv.entry,
+                      stopLoss: lv.stop,
+                      target: lv.target1,
+                    });
+                    setOrderBusy(false);
+                    if (res.ok) {
+                      setOrderFeedback(`Order placed #${res.orderId} (${res.mode})`);
+                    } else {
+                      setOrderFeedback(`Blocked: ${res.error}`);
+                    }
+                  }}
+                  disabled={orderBusy}
+                  className="px-2.5 py-1 text-xs rounded font-medium bg-green-500 text-black hover:bg-green-400 cursor-pointer disabled:opacity-50"
+                >
+                  {orderBusy ? 'Routing…' : 'Execute Order'}
+                </button>
+              </div>
+              {orderFeedback && (
+                <div className={`mt-1.5 text-[11px] font-mono ${orderFeedback.startsWith('Order placed') ? 'text-green-400' : 'text-red-400'}`}>
+                  {orderFeedback}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="px-4 py-2 text-[10px] text-gray-600" style={rule}>
             Source: {view.source.provider ?? 'unknown'}{meta ? <> · <span style={{ color: meta.color }}>{meta.label}</span></> : ''}{view.source.asOf ? ` · daily data as of ${stamp(view.source.asOf)}` : ''}.

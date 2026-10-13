@@ -98,11 +98,12 @@ export default function Sidebar({ activeTab, onTabChange, marketLabel = null, ma
               onClick={() => onTabChange(item.id)}
               className={`flex items-center gap-3 h-10 flex-shrink-0 rounded-lg px-2 transition-all duration-200 cursor-pointer ${
                 isActive
-                  ? 'text-green-400'
+                  ? 'text-green-400 font-medium'
                   : 'text-gray-400 hover:text-gray-200'
               }`}
               style={{
                 backgroundColor: isActive ? 'rgba(0, 230, 118, 0.12)' : 'transparent',
+                borderLeft: isActive ? '2px solid #00e676' : '2px solid transparent',
               }}
               title={!expanded ? item.label : undefined}
             >
@@ -126,11 +127,20 @@ export default function Sidebar({ activeTab, onTabChange, marketLabel = null, ma
         </div>
         {bottomItems.map((item) => {
           const Icon = item.icon;
+          const isActive = activeTab === item.id;
           return (
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
-              className="flex items-center gap-3 h-10 rounded-lg px-2 text-gray-400 hover:text-gray-200 transition-all cursor-pointer"
+              className={`flex items-center gap-3 h-10 rounded-lg px-2 transition-all cursor-pointer ${
+                isActive
+                  ? 'text-green-400 font-medium'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+              style={{
+                backgroundColor: isActive ? 'rgba(0, 230, 118, 0.12)' : 'transparent',
+                borderLeft: isActive ? '2px solid #00e676' : '2px solid transparent',
+              }}
               title={!expanded ? item.label : undefined}
             >
               <Icon size={20} className="flex-shrink-0" />

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Eye, EyeOff, RefreshCw, Briefcase, TrendingUp, TrendingDown, Wallet, PieChart, ShieldAlert } from 'lucide-react';
 import { fetchPortfolio } from '../services/api';
 import { loadSettings } from '../data/settings';
 import { loadCosts, saveCosts, setCost } from '../data/costBasis';
@@ -11,25 +12,13 @@ const inr = (n) => (Number.isFinite(n) ? `₹${n.toLocaleString('en-IN', { minim
 const signed = (n) => (Number.isFinite(n) ? `${n >= 0 ? '+' : ''}${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—');
 const colorOf = (n) => (!Number.isFinite(n) || n === 0 ? '#9ca3af' : n > 0 ? GREEN : RED);
 
-function Stat({ label, value, color, sub }) {
-  return (
-    <div className="flex flex-col px-4 py-2">
-      <span className="text-[10px] text-gray-600 uppercase tracking-wider">{label}</span>
-      <span className="text-sm font-mono font-medium" style={{ color: color || '#d1d5db' }}>{value}</span>
-      {sub && <span className="text-[10px] font-mono" style={{ color }}>{sub}</span>}
-    </div>
-  );
-}
-
 const VIEWS = [
-  { id: 'holdings', label: 'Holdings' },
-  { id: 'review', label: 'Review: buy, hold, sell' },
-  { id: 'allocation', label: 'Allocation' },
-  { id: 'correlation', label: 'Correlation & risk' },
+  { id: 'holdings', label: 'Holdings', icon: Briefcase },
+  { id: 'review', label: 'Review: Buy, Hold, Sell', icon: ShieldAlert },
+  { id: 'allocation', label: 'Allocation', icon: PieChart },
+  { id: 'correlation', label: 'Correlation & Risk', icon: TrendingUp },
 ];
 
-// Read-only view of the ICICI Direct demat holdings. Personal data: it is fetched on demand from the
-// local server, kept only in this component's state, and hidden behind a button until you ask.
 export default function PortfolioPanel({ onSelectStock }) {
   const [state, setState] = useState({ status: 'idle', data: null, error: '' });
   const [hidden, setHidden] = useState(() => loadSettings(window.localStorage).hideAmounts);
@@ -51,102 +40,201 @@ export default function PortfolioPanel({ onSelectStock }) {
       if (result.error) setState({ status: 'error', data: null, error: result.error });
       else setState({ status: 'ready', data: result, error: '' });
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const { status, data, error } = state;
   const mask = (text) => (hidden ? '••••••' : text);
 
-  const onCost = useCallback((symbol, text) => {
-    const next = setCost(costs, symbol, text);
-    if (next[symbol] === costs[symbol]) return;
-    setCosts(next);
-    setCostSaveFailed(!saveCosts(next, window.localStorage));
-  }, [costs]);
+  const onCost = useCallback(
+    (symbol, text) => {
+      const next = setCost(costs, symbol, text);
+      if (next[symbol] === costs[symbol]) return;
+      setCosts(next);
+      setCostSaveFailed(!saveCosts(next, window.localStorage));
+    },
+    [costs]
+  );
 
   const holdings = data?.holdings ?? null;
-  const analysisInput = useMemo(() => ({ funds: data?.funds ?? null, totalValue: data?.totals?.value ?? null, costs }), [data, costs]);
-  // The price history behind the review is only fetched once one of the analysis tabs has been opened
+  const analysisInput = useMemo(
+    () => ({ funds: data?.funds ?? null, totalValue: data?.totals?.value ?? null, costs }),
+    [data, costs]
+  );
   const [analysisWanted, setAnalysisWanted] = useState(false);
   const portfolio = usePortfolioAnalysis(analysisWanted ? holdings : null, analysisInput);
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto" style={{ backgroundColor: '#0a0e17' }}>
-      <div className="flex items-center justify-between px-4 py-2" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.3)' }}>
-        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Portfolio · ICICI Direct (read-only)</h2>
-        <div className="flex gap-2">
-          <button onClick={() => setHidden((h) => !h)} className="px-2 py-1 text-xs rounded bg-white/5 text-gray-300 hover:bg-white/10 cursor-pointer">
-            {hidden ? 'Show amounts' : 'Hide amounts'}
+    <div className="flex-1 min-h-0 overflow-y-auto flex flex-col" style={{ backgroundColor: '#0a0e17' }}>
+      {/* Top Header Bar */}
+      <div
+        className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 flex-shrink-0"
+        style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.4)', backgroundColor: '#0d1117' }}
+      >
+        <div className="flex items-center gap-2">
+          <Briefcase size={16} className="text-emerald-400" />
+          <h2 className="text-xs font-bold text-gray-200 uppercase tracking-wider">
+            Demat Portfolio · ICICI Direct (Read-Only)
+          </h2>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setHidden((h) => !h)}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded bg-white/5 text-gray-300 hover:text-white hover:bg-white/10 cursor-pointer font-medium"
+          >
+            {hidden ? <Eye size={13} /> : <EyeOff size={13} />}
+            {hidden ? 'Show Amounts' : 'Hide Amounts'}
           </button>
-          <button onClick={load} disabled={status === 'loading'} className="px-2 py-1 text-xs rounded bg-green-500/15 text-green-400 enabled:hover:bg-green-500/25 enabled:cursor-pointer disabled:opacity-50">
-            {status === 'loading' ? 'Loading…' : 'Refresh'}
+          <button
+            onClick={load}
+            disabled={status === 'loading'}
+            className="flex items-center gap-1.5 px-3 py-1 text-xs rounded font-semibold cursor-pointer disabled:opacity-50"
+            style={{ backgroundColor: 'rgba(0, 230, 118, 0.15)', color: '#00e676' }}
+          >
+            <RefreshCw size={12} className={status === 'loading' ? 'animate-spin' : ''} />
+            {status === 'loading' ? 'Syncing…' : 'Sync Portfolio'}
           </button>
         </div>
       </div>
 
+      {/* Hero Overview Metrics Bar */}
       {data && (
-        <div className="flex flex-wrap gap-2 px-4 py-2" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.3)' }}>
-          {VIEWS.map((v) => (
-            <button
-              key={v.id}
-              onClick={() => { setView(v.id); if (v.id !== 'holdings') setAnalysisWanted(true); }}
-              aria-pressed={view === v.id}
-              className="px-2.5 py-1 text-[11px] rounded cursor-pointer"
-              style={{ backgroundColor: view === v.id ? 'rgba(0, 230, 118, 0.15)' : 'rgba(255,255,255,0.04)', color: view === v.id ? '#00e676' : '#94a3b8' }}
-            >
-              {v.label}
-            </button>
-          ))}
+        <div
+          className="grid grid-cols-2 sm:grid-cols-4 gap-2 px-4 py-3 flex-shrink-0"
+          style={{ backgroundColor: '#0a0e17', borderBottom: '1px solid rgba(30, 45, 61, 0.4)' }}
+        >
+          <div className="p-3 rounded-lg" style={{ backgroundColor: '#111827', border: '1px solid #1e2d3d' }}>
+            <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium block mb-1">
+              Total Holdings Value
+            </span>
+            <span className="text-base font-mono font-bold text-gray-100">{mask(inr(data.totals.value))}</span>
+          </div>
+
+          <div className="p-3 rounded-lg" style={{ backgroundColor: '#111827', border: '1px solid #1e2d3d' }}>
+            <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium block mb-1">
+              Today&apos;s Change
+            </span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-base font-mono font-bold" style={{ color: colorOf(data.totals.dayChange) }}>
+                {mask(signed(data.totals.dayChange))}
+              </span>
+              {Number.isFinite(data.totals.dayChangePct) && (
+                <span className="text-xs font-mono font-semibold" style={{ color: colorOf(data.totals.dayChange) }}>
+                  ({signed(data.totals.dayChangePct)}%)
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="p-3 rounded-lg" style={{ backgroundColor: '#111827', border: '1px solid #1e2d3d' }}>
+            <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium block mb-1">
+              Active Holdings
+            </span>
+            <span className="text-base font-mono font-bold text-gray-100">{data.totals.count} Stocks</span>
+          </div>
+
+          <div className="p-3 rounded-lg" style={{ backgroundColor: '#111827', border: '1px solid #1e2d3d' }}>
+            <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium block mb-1">
+              Unallocated Cash
+            </span>
+            <span className="text-base font-mono font-bold text-emerald-400">
+              {data.funds ? mask(inr(data.funds.unallocatedBalance)) : '—'}
+            </span>
+          </div>
         </div>
       )}
 
-      {status === 'loading' && !data && <p className="px-4 py-6 text-xs text-gray-500">Loading your holdings…</p>}
+      {/* Sub-Views Navigation Tab Bar */}
+      {data && (
+        <div
+          className="flex flex-wrap items-center gap-2 px-4 py-2 flex-shrink-0"
+          style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.3)', backgroundColor: '#0d1117' }}
+        >
+          {VIEWS.map((v) => {
+            const Icon = v.icon;
+            const active = view === v.id;
+            return (
+              <button
+                key={v.id}
+                onClick={() => {
+                  setView(v.id);
+                  if (v.id !== 'holdings') setAnalysisWanted(true);
+                }}
+                aria-pressed={active}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md font-medium cursor-pointer transition-all ${
+                  active
+                    ? 'bg-emerald-500/20 text-emerald-400 font-semibold'
+                    : 'bg-white/5 text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                <Icon size={13} />
+                {v.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Loading & Error States */}
+      {status === 'loading' && !data && (
+        <div className="flex-1 flex items-center justify-center p-8 text-xs text-gray-500">
+          Syncing Demat holdings from ICICI Direct API…
+        </div>
+      )}
 
       {status === 'error' && (
-        <div className="px-4 py-6 text-xs text-gray-400 space-y-2">
+        <div className="p-6 text-xs text-gray-400 space-y-2">
           <p style={{ color: '#ff1744' }}>{error}</p>
           <p>
-            This page needs the ICICI Direct sign-in and works only on the machine running the server.{' '}
-            <a href="?tab=settings" className="underline" style={{ color: '#00e5ff' }}>Open Settings</a>.
+            Portfolio inspection requires local broker credentials.{' '}
+            <a href="?tab=settings" className="underline" style={{ color: '#00e5ff' }}>
+              Open Settings to configure Breeze API
+            </a>
+            .
           </p>
         </div>
       )}
 
+      {/* Sub-Views Content */}
       {data && view === 'review' && (
         <ReviewView {...portfolio} onCost={onCost} onSelectStock={onSelectStock} />
       )}
-      {data && view === 'allocation' && <AllocationView {...portfolio} holdings={data.holdings} hidden={hidden} />}
+      {data && view === 'allocation' && (
+        <AllocationView {...portfolio} holdings={data.holdings} hidden={hidden} />
+      )}
       {data && view === 'correlation' && <CorrelationView {...portfolio} />}
-      {costSaveFailed && view === 'review' && <p className="px-4 py-2 text-[11px]" style={{ color: '#ff1744' }}>Could not save your average prices in this browser.</p>}
+      {costSaveFailed && view === 'review' && (
+        <p className="px-4 py-2 text-[11px]" style={{ color: '#ff1744' }}>
+          Could not persist your average buy prices in browser local storage.
+        </p>
+      )}
 
+      {/* Holdings Table View */}
       {data && view === 'holdings' && (
         <>
-          <div className="flex flex-wrap" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.3)' }}>
-            <Stat label="Holdings value" value={mask(inr(data.totals.value))} />
-            <Stat
-              label="Day change"
-              value={mask(signed(data.totals.dayChange))}
-              color={colorOf(data.totals.dayChange)}
-              sub={Number.isFinite(data.totals.dayChangePct) ? `${signed(data.totals.dayChangePct)}%` : null}
-            />
-            <Stat label="Stocks" value={data.totals.count} />
-            {data.funds && <Stat label="Unallocated cash" value={mask(inr(data.funds.unallocatedBalance))} />}
-            {data.funds?.bankAccountLast4 && <Stat label="Bank a/c" value={`••${data.funds.bankAccountLast4}`} />}
-          </div>
-
           {data.totals.unpriced > 0 && (
-            <p className="px-4 py-2 text-[11px]" style={{ color: '#ffd600' }}>
-              {data.totals.unpriced} holding{data.totals.unpriced > 1 ? 's' : ''} could not be priced (shown as —) and are not in the totals.
-            </p>
+            <div className="px-4 py-2 text-[11px] flex items-center gap-1.5" style={{ color: '#ffd600', backgroundColor: 'rgba(255, 214, 0, 0.05)' }}>
+              <span>⚠</span>
+              <span>
+                {data.totals.unpriced} holding{data.totals.unpriced > 1 ? 's' : ''} currently unpriced on the feed.
+              </span>
+            </div>
           )}
 
-          <div className="overflow-x-auto">
+          <div className="flex-1 overflow-x-auto min-h-0">
             <table className="w-full text-xs">
-              <thead>
-                <tr className="text-[10px] text-gray-600 uppercase tracking-wider">
-                  {['Stock', 'Qty', 'Price', 'Day %', 'Value', 'Day change', 'Weight'].map((h, i) => (
-                    <th key={h} className={`px-4 py-1.5 font-normal ${i === 0 ? 'text-left' : 'text-right'}`}>{h}</th>
-                  ))}
+              <thead className="sticky top-0 z-10" style={{ backgroundColor: '#0d1117' }}>
+                <tr className="text-[10px] text-gray-500 uppercase tracking-wider" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.5)' }}>
+                  <th className="px-4 py-2 font-medium text-left">Stock</th>
+                  <th className="px-3 py-2 font-medium text-right">Qty</th>
+                  <th className="px-3 py-2 font-medium text-right">LTP (₹)</th>
+                  <th className="px-3 py-2 font-medium text-right">Day %</th>
+                  <th className="px-3 py-2 font-medium text-right">Market Value</th>
+                  <th className="px-3 py-2 font-medium text-right">Day Change</th>
+                  <th className="px-4 py-2 font-medium text-right">Weight %</th>
                 </tr>
               </thead>
               <tbody>
@@ -154,32 +242,54 @@ export default function PortfolioPanel({ onSelectStock }) {
                   <tr
                     key={h.code}
                     onClick={h.symbol ? () => onSelectStock({ symbol: h.symbol, name: h.name, sector: '' }) : undefined}
-                    className={h.symbol ? 'cursor-pointer hover:bg-white/5' : ''}
+                    className={`transition-colors ${h.symbol ? 'cursor-pointer hover:bg-white/5' : ''}`}
                     style={{ borderTop: '1px solid rgba(30, 45, 61, 0.2)' }}
-                    title={h.symbol ? 'Open chart' : 'Not an NSE symbol the chart can load'}
+                    title={h.symbol ? 'Open technical chart' : 'Unmapped symbol'}
                   >
-                    <td className="px-4 py-1.5">
-                      <div className="font-medium text-gray-200">{h.symbol || h.code}</div>
-                      <div className="text-[10px] text-gray-600 truncate max-w-[16rem]">{h.name}</div>
+                    <td className="px-4 py-2.5">
+                      <div className="font-bold text-gray-200 hover:text-emerald-400 transition-colors">
+                        {h.symbol || h.code}
+                      </div>
+                      <div className="text-[10px] text-gray-500 truncate max-w-[16rem]">{h.name}</div>
                     </td>
-                    <td className="px-4 py-1.5 text-right font-mono text-gray-300">{mask(String(h.quantity))}</td>
-                    <td className="px-4 py-1.5 text-right font-mono text-gray-300">{Number.isFinite(h.price) ? `₹${h.price.toFixed(2)}` : '—'}</td>
-                    <td className="px-4 py-1.5 text-right font-mono" style={{ color: colorOf(h.dayChangePct) }}>
+                    <td className="px-3 py-2.5 text-right font-mono text-gray-300">{mask(String(h.quantity))}</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-gray-200 font-semibold">
+                      {Number.isFinite(h.price) ? `₹${h.price.toFixed(2)}` : '—'}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono font-semibold" style={{ color: colorOf(h.dayChangePct) }}>
                       {Number.isFinite(h.dayChangePct) ? `${signed(h.dayChangePct)}%` : '—'}
                     </td>
-                    <td className="px-4 py-1.5 text-right font-mono text-gray-300">{mask(Number.isFinite(h.value) ? inr(h.value) : '—')}</td>
-                    <td className="px-4 py-1.5 text-right font-mono" style={{ color: colorOf(h.dayChange) }}>{mask(signed(h.dayChange))}</td>
-                    <td className="px-4 py-1.5 text-right font-mono text-gray-400">{Number.isFinite(h.weightPct) ? `${h.weightPct.toFixed(1)}%` : '—'}</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-gray-200 font-medium">
+                      {mask(Number.isFinite(h.value) ? inr(h.value) : '—')}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono font-semibold" style={{ color: colorOf(h.dayChange) }}>
+                      {mask(signed(h.dayChange))}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono">
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="h-1 rounded-full bg-gray-800" style={{ width: '35px' }}>
+                          <div
+                            className="h-full rounded-full bg-cyan-400"
+                            style={{ width: `${Math.min(100, Math.max(5, h.weightPct ?? 0))}%` }}
+                          />
+                        </div>
+                        <span className="text-gray-300 font-medium w-10 text-right">
+                          {Number.isFinite(h.weightPct) ? `${h.weightPct.toFixed(1)}%` : '—'}
+                        </span>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          <p className="px-4 py-3 text-[10px] text-gray-600">
-            Prices: {data.priceBasis}. Source: {data.provider}, fetched {new Date(data.fetchedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}.{' '}
-            {(data.notes || []).join(' ')} Weights are by current value of priced holdings. This is a read-only view; StockPulse cannot place or change orders.
-          </p>
+          {/* Footer Info */}
+          <div className="px-4 py-2.5 text-[10px] text-gray-600 flex-shrink-0" style={{ borderTop: '1px solid rgba(30, 45, 61, 0.3)' }}>
+            Prices: {data.priceBasis}. Source: {data.provider}, fetched{' '}
+            {new Date(data.fetchedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} IST.{' '}
+            {(data.notes || []).join(' ')} Read-only view; StockPulse cannot place, modify, or cancel trades.
+          </div>
         </>
       )}
     </div>

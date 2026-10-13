@@ -230,16 +230,21 @@ export async function fetchIndexStocks(id) {
   return data?.stocks ? data : null;
 }
 
-// Resolves { quotes, missing, dataStatus, asOf, provider } or null. Symbols are sent in requests of up to 250.
+// Resolves { quotes, missing, dataStatus, asOf, provider } or null. Concurrent Multi-Agent batch fetch.
 export async function fetchQuotes(symbols, { force = false } = {}) {
   const unique = [...new Set(symbols)];
-  const parts = [];
-  for (let i = 0; i < unique.length; i += 250) {
-    const result = await cachedRequest(`/quotes?symbols=${unique.slice(i, i + 250).map(encodeURIComponent).join(',')}`, TTL.quotes, { force });
-    const part = result ? result.data : null;
-    if (!part) return parts.length ? mergeQuoteParts(parts) : null;
-    parts.push(part);
+  if (unique.length === 0) return null;
+  const chunkPromises = [];
+  for (let i = 0; i < unique.length; i += 150) {
+    const chunkSymbols = unique.slice(i, i + 150);
+    chunkPromises.push(
+      cachedRequest(`/quotes?symbols=${chunkSymbols.map(encodeURIComponent).join(',')}`, TTL.quotes, { force })
+    );
   }
+  const settled = await Promise.allSettled(chunkPromises);
+  const parts = settled
+    .filter((s) => s.status === 'fulfilled' && s.value?.data)
+    .map((s) => s.value.data);
   return parts.length ? mergeQuoteParts(parts) : null;
 }
 
@@ -308,4 +313,97 @@ export async function fetchIpos() {
 export async function fetchIndexLevels({ force = false } = {}) {
   const result = await cachedRequest('/index-levels', TTL.levels, { force });
   return result ? result.data : null;
+}
+
+// Fundamental Data Pipeline: P/E, EPS, Debt-to-Equity, FCF, Quarterly Earnings, 5-Year Median P/E
+export async function fetchFundamentals(symbol) {
+  return await apiFetch(`/fundamentals/${encodeURIComponent(symbol)}`);
+}
+
+// Execution Circuit Breaker API
+export async function fetchCircuitBreaker() {
+  return await apiFetch('/circuit-breaker');
+}
+
+export async function resetCircuitBreaker() {
+  try {
+    const res = await fetch(`${API_BASE}/circuit-breaker/reset`, { method: 'POST' });
+    return await res.json();
+  } catch {
+    return { ok: false, error: 'Could not reach server' };
+  }
+}
+
+export async function haltCircuitBreaker(reason = 'Manual halt from dashboard') {
+  try {
+    const res = await fetch(`${API_BASE}/circuit-breaker/halt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+    return await res.json();
+  } catch {
+    return { ok: false, error: 'Could not reach server' };
+  }
+}
+
+// Actionable Bracket Order execution with Circuit Breaker safety gating
+export async function executeBracketOrder(order) {
+  try {
+    const res = await fetch(`${API_BASE}/orders/bracket`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(order),
+    });
+    const data = await res.json();
+    return { ok: res.ok, status: res.status, ...data };
+  } catch {
+    return { ok: false, status: 0, error: 'Could not reach server' };
+  }
+}
+
+// Configured notification channels (ntfy, telegram, discord, twilio, webhook)
+export async function fetchAlertChannels() {
+  return await apiFetch('/alerts/channels');
+}
+
+// Real-Time WebSocket helper
+export function createMarketWebSocket({ onTick, onBar, onConnected, onError } = {}) {
+  if (typeof window === 'undefined' || typeof WebSocket === 'undefined') return null;
+  const wsUrl = API_BASE.replace(/^http/, 'ws').replace(/\/api$/, '/ws');
+  let ws = null;
+  try {
+    ws = new WebSocket(wsUrl);
+    ws.onopen = () => onConnected?.();
+    ws.onerror = (e) => onError?.(e);
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'tick') onTick?.(msg);
+        else if (msg.type === 'bar') onBar?.(msg);
+      } catch {
+        /* ignore parse errors */
+      }
+    };
+  } catch (e) {
+    onError?.(e);
+  }
+  return {
+    subscribe: (symbol) => {
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: 'subscribe', symbol }));
+      }
+    },
+    unsubscribe: (symbol) => {
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: 'unsubscribe', symbol }));
+      }
+    },
+    close: () => ws?.close(),
+  };
+}
+
+// Live financial news feed for Indian stock market
+export async function fetchNews(category = 'All') {
+  return await apiFetch(`/news?category=${encodeURIComponent(category)}`);
 }

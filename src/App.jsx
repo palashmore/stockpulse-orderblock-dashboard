@@ -22,6 +22,9 @@ import MyWatchlist from './components/MyWatchlist';
 import MultiChart from './components/MultiChart';
 import IpoPanel from './components/IpoPanel';
 import ErrorBoundary from './components/ErrorBoundary';
+import IndexSelect from './components/IndexSelect';
+import MarketTickerStrip from './components/dashboard/MarketTickerStrip';
+import { useUniverseSelection, useUniverseStocks } from './hooks/useUniverse';
 import { TAB_IDS } from './components/Sidebar';
 import MobileNav from './components/MobileNav';
 import ThemeToggle from './components/ThemeToggle';
@@ -80,6 +83,8 @@ export default function App() {
   const nifty = useNifty50(demoMode);
   const alertsApi = useAlerts(nifty);
   const [screenerPanel, setScreenerPanel] = useState('board');
+  const universeSelection = useUniverseSelection();
+  const { stocks: universeStocks, labels: universeLabels } = useUniverseStocks(universeSelection.universe);
 
   // Real data state. backendUp is null until the first health check completes.
   const [backendUp, setBackendUp] = useState(null);
@@ -416,9 +421,9 @@ export default function App() {
       case 'analysis':
         return <NormalAnalysis key={selectedStock.symbol} selectedStock={selectedStock} nifty={nifty} demoMode={demoMode} />;
       case 'intraday':
-        return <StrategyWorkspace key="intraday" mode="intraday" selectedStock={selectedStock} demoMode={demoMode} />;
+        return <StrategyWorkspace key="intraday" mode="intraday" selectedStock={selectedStock} demoMode={demoMode} onSelectStock={handleSelectStock} />;
       case 'swing':
-        return <StrategyWorkspace key="swing" mode="swing" selectedStock={selectedStock} demoMode={demoMode} />;
+        return <StrategyWorkspace key="swing" mode="swing" selectedStock={selectedStock} demoMode={demoMode} onSelectStock={handleSelectStock} />;
       case 'portfolio':
         return <PortfolioPanel onSelectStock={openStockFromOverview} />;
       case 'multichart':
@@ -426,7 +431,16 @@ export default function App() {
       case 'ipo':
         return <IpoPanel />;
       case 'scanner':
-        return <ScannerPanel nifty={nifty} onSelectStock={openStockFromOverview} />;
+        return (
+          <ScannerPanel
+            nifty={nifty}
+            universeSelection={universeSelection}
+            universeStocks={universeStocks}
+            universeLabels={universeLabels}
+            demoMode={demoMode}
+            onSelectStock={openStockFromOverview}
+          />
+        );
       case 'alerts':
         return <AlertsPanel nifty={nifty} alertsApi={alertsApi} selectedStock={selectedStock} demoMode={demoMode} />;
       case 'settings':
@@ -454,7 +468,18 @@ export default function App() {
             backdropFilter: 'blur(10px)',
           }}
         >
-          <SearchBar selectedStock={selectedStock} onSelectStock={handleSelectStock} />
+          <div className="flex items-center gap-2 min-w-0 flex-shrink-0">
+            <SearchBar selectedStock={selectedStock} onSelectStock={handleSelectStock} />
+            <div className="hidden sm:block">
+              <IndexSelect selection={universeSelection} labels={universeLabels} count={universeStocks?.length ?? 0} />
+            </div>
+          </div>
+
+          {/* Persistent Benchmark Ticker Strip */}
+          <div className="hidden xl:flex flex-1 justify-center min-w-0 px-2 overflow-hidden">
+            <MarketTickerStrip demoMode={demoMode} />
+          </div>
+
           <div className="flex items-center gap-3 flex-shrink-0">
             <ThemeToggle />
 

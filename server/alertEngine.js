@@ -118,25 +118,132 @@ const NTFY_TOPIC = /^[A-Za-z0-9_-]{8,64}$/;
  * Returns { channel, send, error }: `send` is null when nothing is configured or the config is invalid.
  */
 export function createNotifier(env = {}, fetchFn = fetch) {
+  const dispatchers = [];
+  const errors = [];
+  const channels = [];
+
+  // 1. ntfy
   const topic = (env.NTFY_TOPIC || '').trim();
-  if (!topic) return { channel: 'none', send: null, error: null };
   const server = (env.NTFY_SERVER || 'https://ntfy.sh').trim().replace(/\/$/, '');
-  if (!NTFY_TOPIC.test(topic)) return { channel: 'none', send: null, error: 'NTFY_TOPIC must be 8-64 letters, digits, "-" or "_"' };
-  if (!/^https:\/\/[^\s/]+(\/[^\s]*)?$/.test(server) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(server)) {
-    return { channel: 'none', send: null, error: 'NTFY_SERVER must be an https:// address' };
+  if (topic) {
+    if (!NTFY_TOPIC.test(topic)) {
+      errors.push('NTFY_TOPIC must be 8-64 letters, digits, "-" or "_"');
+    } else if (!/^https:\/\/[^\s/]+(\/[^\s]*)?$/.test(server) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(server)) {
+      errors.push('NTFY_SERVER must be an https:// address');
+    } else {
+      channels.push('ntfy');
+      dispatchers.push(async ({ title, message }) => {
+        const response = await fetchFn(`${server}/${topic}`, {
+          method: 'POST',
+          headers: { Title: String(title).replace(/[^\x20-\x7e]/g, '?'), Tags: 'chart_with_upwards_trend' },
+          body: message,
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!response.ok) throw new Error(`ntfy answered HTTP ${response.status}`);
+      });
+    }
   }
-  return {
-    channel: 'ntfy',
-    error: null,
-    async send({ title, message }) {
-      const response = await fetchFn(`${server}/${topic}`, {
+
+  // 2. Telegram Bot API
+  const tgToken = (env.TELEGRAM_BOT_TOKEN || '').trim();
+  const tgChatId = (env.TELEGRAM_CHAT_ID || '').trim();
+  if (tgToken && tgChatId) {
+    channels.push('telegram');
+    dispatchers.push(async ({ title, message }) => {
+      const url = `https://api.telegram.org/bot${tgToken}/sendMessage`;
+      const response = await fetchFn(url, {
         method: 'POST',
-        // Header values must be plain ASCII; the body carries the details
-        headers: { Title: String(title).replace(/[^\x20-\x7e]/g, '?'), Tags: 'chart_with_upwards_trend' },
-        body: message,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: tgChatId, text: `📈 *${title}*\n\n${message}`, parse_mode: 'Markdown' }),
         signal: AbortSignal.timeout(10000),
       });
-      if (!response.ok) throw new Error(`ntfy answered HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`Telegram answered HTTP ${response.status}`);
+    });
+  }
+
+  // 3. Discord Webhook
+  const discordUrl = (env.DISCORD_WEBHOOK_URL || '').trim();
+  if (discordUrl) {
+    if (!/^https:\/\/discord(app)?\.com\/api\/webhooks\//.test(discordUrl)) {
+      errors.push('DISCORD_WEBHOOK_URL must be a valid Discord webhook URL');
+    } else {
+      channels.push('discord');
+      dispatchers.push(async ({ title, message }) => {
+        const response = await fetchFn(discordUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            embeds: [{
+              title: String(title),
+              description: String(message),
+              color: 0x00e676,
+              timestamp: new Date().toISOString(),
+            }],
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!response.ok) throw new Error(`Discord answered HTTP ${response.status}`);
+      });
+    }
+  }
+
+  // 4. Twilio SMS
+  const twilioSid = (env.TWILIO_ACCOUNT_SID || '').trim();
+  const twilioToken = (env.TWILIO_AUTH_TOKEN || '').trim();
+  const twilioTo = (env.TWILIO_TO_NUMBER || '').trim();
+  const twilioFrom = (env.TWILIO_FROM_NUMBER || '').trim();
+  if (twilioSid && twilioToken && twilioTo && twilioFrom) {
+    channels.push('twilio');
+    dispatchers.push(async ({ title, message }) => {
+      const auth = Buffer.from(`${twilioSid}:${twilioToken}`).toString('base64');
+      const body = new URLSearchParams({ From: twilioFrom, To: twilioTo, Body: `${title}: ${message}` }).toString();
+      const response = await fetchFn(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body,
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) throw new Error(`Twilio answered HTTP ${response.status}`);
+    });
+  }
+
+  // 5. Generic Custom Webhook
+  const customWebhook = (env.GENERIC_WEBHOOK_URL || '').trim();
+  if (customWebhook) {
+    channels.push('webhook');
+    dispatchers.push(async ({ title, message }) => {
+      const response = await fetchFn(customWebhook, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, message, timestamp: new Date().toISOString() }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) throw new Error(`Webhook answered HTTP ${response.status}`);
+    });
+  }
+
+  if (dispatchers.length === 0) {
+    return {
+      channel: 'none',
+      send: null,
+      error: errors.length ? errors.join('; ') : null,
+    };
+  }
+
+  const primaryChannel = channels.join(', ');
+  return {
+    channel: primaryChannel,
+    channels,
+    error: errors.length ? errors.join('; ') : null,
+    async send(payload) {
+      const settled = await Promise.allSettled(dispatchers.map((d) => d(payload)));
+      const rejections = settled.filter((s) => s.status === 'rejected');
+      if (rejections.length === dispatchers.length) {
+        throw new Error(rejections[0].reason?.message || 'All notification channels failed');
+      }
     },
   };
 }

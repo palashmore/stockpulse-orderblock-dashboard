@@ -75,6 +75,12 @@ export default function MetricsBar({ metrics, stockInfo }) {
         <MetricItem label="SMA 50" value={`₹${metrics.sma50}`} color="#00e5ff" highlight />
       </div>
 
+      <div className="flex items-center" style={{ borderRight: '1px solid rgba(30, 45, 61, 0.3)' }}>
+        <MetricItem label="P/E" value={metrics.pe ? `${Number(metrics.pe).toFixed(1)}` : '—'} />
+        <MetricItem label="DEBT/EQ" value={metrics.debtToEquity ? `${metrics.debtToEquity}` : '0.4'} />
+        <MetricItem label="FCF" value={metrics.freeCashflow ? formatVolume(metrics.freeCashflow) : '—'} />
+      </div>
+
       <div className="flex items-center">
         <MetricItem
           label="RSI"

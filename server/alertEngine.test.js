@@ -355,4 +355,43 @@ describe('push notifier', () => {
     const failing = createNotifier({ NTFY_TOPIC: 'abcdefgh1234' }, async () => new Response('no', { status: 429 }));
     await expect(failing.send({ title: 't', message: 'm' })).rejects.toThrow(/429/);
   });
+
+  it('dispatches to Telegram Bot API when configured', async () => {
+    const log = [];
+    const tgNotifier = createNotifier({
+      TELEGRAM_BOT_TOKEN: '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11',
+      TELEGRAM_CHAT_ID: '987654321',
+    }, okFetch(log));
+    expect(tgNotifier.channel).toBe('telegram');
+    await tgNotifier.send({ title: 'TCS Buy Signal', message: 'RSI breakout at ₹4050' });
+    expect(log[0].url).toContain('https://api.telegram.org/bot123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11/sendMessage');
+    const body = JSON.parse(log[0].init.body);
+    expect(body.chat_id).toBe('987654321');
+    expect(body.text).toContain('TCS Buy Signal');
+  });
+
+  it('dispatches to Discord Webhook when configured', async () => {
+    const log = [];
+    const discordNotifier = createNotifier({
+      DISCORD_WEBHOOK_URL: 'https://discord.com/api/webhooks/123456789/abcdefghijk',
+    }, okFetch(log));
+    expect(discordNotifier.channel).toBe('discord');
+    await discordNotifier.send({ title: 'INFY Alert', message: 'Target hit' });
+    expect(log[0].url).toBe('https://discord.com/api/webhooks/123456789/abcdefghijk');
+    const body = JSON.parse(log[0].init.body);
+    expect(body.embeds[0].title).toBe('INFY Alert');
+  });
+
+  it('supports multi-channel concurrent dispatch (ntfy + telegram + discord)', async () => {
+    const log = [];
+    const multi = createNotifier({
+      NTFY_TOPIC: 'abcdefgh1234',
+      TELEGRAM_BOT_TOKEN: 'token123',
+      TELEGRAM_CHAT_ID: 'chat123',
+      DISCORD_WEBHOOK_URL: 'https://discord.com/api/webhooks/123/xyz',
+    }, okFetch(log));
+    expect(multi.channels).toEqual(['ntfy', 'telegram', 'discord']);
+    await multi.send({ title: 'Macro Breakout', message: 'Nifty 50 above 25000' });
+    expect(log).toHaveLength(3);
+  });
 });

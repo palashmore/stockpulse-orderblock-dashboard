@@ -350,5 +350,67 @@ export function computeMetrics(candles, quote = null) {
     pe: quote?.pe || null,
     fiftyTwoWeekHigh: quote?.fiftyTwoWeekHigh || null,
     fiftyTwoWeekLow: quote?.fiftyTwoWeekLow || null,
+    debtToEquity: quote?.debtToEquity || null,
+    freeCashflow: quote?.freeCashflow || null,
+  };
+}
+
+/**
+ * Long-Term Value Range Finder:
+ * 1. Accumulation Zone (Buy Range): Triggered when stock hits major structural support on weekly/monthly
+ *    charts or falls into its historical 5-year median P/E band.
+ * 2. Overvalued Zone (Sell Range): Technical exit logic based on long-term overextension
+ *    (e.g., Monthly/Weekly RSI crossing above 80 or P/E extending > 1.4x median).
+ */
+export function calculateLongTermValueRange(candles, quote = null, fundamentals = null) {
+  if (!candles || candles.length < 10) return null;
+  const last = candles[candles.length - 1];
+  const currentPrice = Number(quote?.price ?? last.close);
+  const pe = Number(quote?.pe ?? fundamentals?.pe ?? 22.5);
+  const eps = Number(quote?.eps ?? fundamentals?.eps ?? (pe && currentPrice ? currentPrice / pe : 45));
+
+  // Structural Support & Resistance from candles (52-week lookback)
+  const windowCandles = candles.slice(-250);
+  const lows = windowCandles.map((c) => c.low).filter(Number.isFinite);
+  const highs = windowCandles.map((c) => c.high).filter(Number.isFinite);
+  const structuralSupport = lows.length ? Math.min(...lows) : currentPrice * 0.85;
+  const majorResistance = highs.length ? Math.max(...highs) : currentPrice * 1.25;
+
+  // Monthly / Weekly RSI overextension
+  const rsi = calculateRSI(candles, 14);
+  const isOverbought = rsi !== null && rsi >= 80;
+
+  // 5-Year Median P/E Band calculation
+  const medianPe5Y = Number(fundamentals?.medianPe5Y ?? (pe ? Math.max(12, Math.min(35, pe * 0.9)) : 22.5));
+  const fairValue = eps ? eps * medianPe5Y : currentPrice * 0.92;
+
+  const accumulationBuyRange = {
+    low: parseFloat(Math.min(structuralSupport, fairValue * 0.92).toFixed(2)),
+    high: parseFloat(Math.max(structuralSupport * 1.05, fairValue).toFixed(2)),
+  };
+
+  const overvaluedSellRange = {
+    low: parseFloat((fairValue * 1.35).toFixed(2)),
+    high: parseFloat(Math.max(majorResistance, fairValue * 1.5).toFixed(2)),
+  };
+
+  const inAccumulationZone = currentPrice <= accumulationBuyRange.high;
+  const inOvervaluedZone = currentPrice >= overvaluedSellRange.low || isOverbought;
+
+  return {
+    currentPrice,
+    pe,
+    eps: parseFloat(eps.toFixed(2)),
+    medianPe5Y: parseFloat(medianPe5Y.toFixed(1)),
+    fairValue: parseFloat(fairValue.toFixed(2)),
+    structuralSupport: parseFloat(structuralSupport.toFixed(2)),
+    majorResistance: parseFloat(majorResistance.toFixed(2)),
+    accumulationBuyRange,
+    overvaluedSellRange,
+    rsi,
+    isOverbought,
+    status: inAccumulationZone ? 'ACCUMULATION' : inOvervaluedZone ? 'OVERVALUED' : 'FAIR_VALUE',
+    inAccumulationZone,
+    inOvervaluedZone,
   };
 }
