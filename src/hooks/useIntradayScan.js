@@ -4,12 +4,14 @@ import { intradaySignals } from '../data/strategies';
 import { dropFormingBar } from '../data/strategyGate';
 import { loadStrategyConfig } from '../data/strategyStore';
 import { evaluateSignal } from '../data/signalLifecycle';
+import { createLoadCache } from '../data/loadCache';
 
-const CONCURRENCY = 4;
+const CONCURRENCY = 6;
 const FRAME_MS = 300000; // 5-minute candles
 const TTL_MS = 3 * 60 * 1000;
 export const MAX_INTRADAY_SCAN = 150;
 const cache = new Map(); // universe key -> { at, scans, excluded }
+const fetched = createLoadCache({ ttlMs: TTL_MS, failTtlMs: 30 * 1000, max: 400 }); // per stock, so a switch of tab does not restart the scan
 
 /**
  * Runs the Intraday workspace's rules over each stock's 5-minute candles (Yahoo, a few at a time,
@@ -40,7 +42,8 @@ export function useIntradayScan(stocks, enabled) {
     const worker = async () => {
       while (next < stocks.length) {
         const stock = stocks[next++];
-        const h = await fetchHistory(stock.symbol, '1mo', '5m', { bulk: true });
+        if (id !== runId.current) return;
+        const h = await fetched.get(stock.symbol, () => fetchHistory(stock.symbol, '1mo', '5m', { bulk: true }));
         if (id !== runId.current) return;
         let reason = null;
         if (!h) reason = 'no data';
