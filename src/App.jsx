@@ -8,7 +8,7 @@ import MetricsBar from './components/MetricsBar';
 import Watchlist from './components/Watchlist';
 import OIAnalysisPanel from './components/OIAnalysisPanel';
 import RankedBoard from './components/RankedBoard';
-import MarketXRay from './components/MarketXRay';
+import MarketDashboard from './components/MarketDashboard';
 import AlertsPanel from './components/AlertsPanel';
 import ScannerPanel from './components/ScannerPanel';
 import SettingsPanel from './components/SettingsPanel';
@@ -400,7 +400,7 @@ export default function App() {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <MarketXRay nifty={nifty} onSelectStock={openStockFromOverview} />;
+        return <MarketDashboard onSelectStock={openStockFromOverview} demoMode={demoMode} />;
       case 'orderblock':
         return renderDashboard();
       case 'screener':

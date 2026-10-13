@@ -55,6 +55,11 @@ Alerts created on the **Alerts** screen are saved by the server (default `data/a
 * **Feed alerts** (on by default, 5 minutes, adjustable on the Alerts screen): during market hours the server also watches that live or delayed prices keep arriving. If they stop for the set time it raises one notice (and a push, if configured), and one more when they return. It also tells you if a signed-in ICICI Direct session drops mid-session. Nothing is said while the market is closed.
 * The alert endpoints answer only on the machine running the server, like the other personal endpoints. Alerts never place orders.
 
+### Dashboard (Market X-Ray) on the selected universe
+The Dashboard uses the same index selector as Stock Lists (several indices, custom symbols, saved presets), so every figure is calculated over the stocks you picked: advancers, decliners, A/D ratio, Bullish/Bearish/Choppy counts, and sector averages (equal-weighted average of each sector's stocks). One card per selected index shows NSE's level, day change and NSE's own advance/decline count for the whole index (NSE indices only; BSE indices such as Sensex are not available because BSE blocks automated access).
+
+Filter the breadth plot by sector, percent-change range, relative volume and swing-setup status (the last loads daily history for up to 250 stocks and is optional). Hover a dot for details, click it (or a row) to open the chart; clicking a sector bar filters to that sector. Bullish/Bearish describes the day's move, not a buy or sell signal.
+
 ### Multi-Chart linking
 On the **Multi-Chart** screen, "Link crosshair and zoom" (on by default) makes the pointer on one chart show the same moment on all the others, and scrolling or zooming one moves them all. Charts on different timeframes line up on the nearest earlier bar. "Same stock in every chart" shows one stock everywhere: turn off "Same timeframe for all" to compare its timeframes side by side.
 

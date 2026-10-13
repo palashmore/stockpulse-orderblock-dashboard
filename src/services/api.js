@@ -180,6 +180,7 @@ function mergeQuoteParts(parts) {
     missing: parts.flatMap((p) => p.missing ?? []),
     dataStatus: worst,
     asOf: parts.map((p) => p.asOf).filter(Boolean).sort().at(-1) ?? null,
+    fetchedAt: parts.map((p) => p.fetchedAt).filter(Boolean).sort().at(0) ?? null, // the oldest part decides how fresh the whole is
     provider: parts[0].provider,
     partial: parts.length > 1 && parts.some((p) => p.dataStatus !== parts[0].dataStatus),
   };
@@ -230,4 +231,9 @@ export async function fetchIpos() {
   } catch {
     return { ok: false, error: 'Could not reach the server' };
   }
+}
+
+// Level and day change of the configured NSE indices. Resolves { indices, missing, dataStatus, asOf, fetchedAt } or null.
+export async function fetchIndexLevels() {
+  return await apiFetch('/index-levels');
 }

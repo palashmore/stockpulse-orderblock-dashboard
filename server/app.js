@@ -144,6 +144,7 @@ export function createApp({
   const inFlight = new Map(); // cache key -> pending provider load, so concurrent identical requests share one call
   const cache = createCache(now);
   let nseCookies = '';
+  let nseCookiesAt = 0;
 
   app.disable('x-powered-by');
   // The browser can only read the X-Data-* status headers (used by /api/nifty50) if they are exposed
@@ -217,7 +218,10 @@ export function createApp({
         ? response.headers.getSetCookie()
         : (response.headers.get('set-cookie') || '').split(/,(?=\s*[^;,]+=)/);
       const cookies = setCookies.map((c) => c.split(';')[0].trim()).filter(Boolean);
-      if (cookies.length) nseCookies = cookies.join('; ');
+      if (cookies.length) {
+        nseCookies = cookies.join('; ');
+        nseCookiesAt = now();
+      }
     } catch (e) {
       console.log('NSE cookie refresh failed:', e.message);
     }
@@ -1204,13 +1208,26 @@ export function createApp({
 
   // ---- mainboard IPO tracking (NSE's public IPO feeds). Open and forthcoming issues also get their bid lot and
   // category-wise subscription from the issue's detail page; if that fails the issue is still listed without them.
+  const NSE_COOKIE_MAX_AGE_MS = 10 * MINUTE;
+  /**
+   * GET a JSON endpoint on nseindia.com. NSE does not always reject stale session cookies: it sometimes just stops
+   * answering. So the cookies are renewed when they are 10 minutes old, and a refusal (401/403) or a stalled request
+   * is retried once with fresh ones.
+   */
   async function nseJson(apiPath, referer = 'https://www.nseindia.com/market-data/all-upcoming-issues-ipo') {
     const request = () => fetchFn(`https://www.nseindia.com/api/${apiPath}`, {
       headers: { ...NSE_HEADERS, Cookie: nseCookies, Referer: referer, Accept: 'application/json' },
       signal: AbortSignal.timeout(15000),
     });
-    if (!nseCookies) await refreshNSECookies();
-    let response = await request();
+    if (!nseCookies || now() - nseCookiesAt > NSE_COOKIE_MAX_AGE_MS) await refreshNSECookies();
+    let response;
+    try {
+      response = await request();
+    } catch (error) {
+      if (error?.name !== 'TimeoutError' && error?.name !== 'AbortError') throw error;
+      await refreshNSECookies();
+      response = await request();
+    }
     if (response.status === 401 || response.status === 403) {
       await refreshNSECookies();
       response = await request();

@@ -74,4 +74,59 @@ describe('/api/index-levels', () => {
     expect(stale.body.dataStatus).toBe('STALE');
     expect(stale.body.indices.nifty50.last).toBe(22000);
   });
+
+  describe('NSE session cookies', () => {
+    const levels = () => json({ timestamp: '12-Oct-2026 15:30', data: [{ index: 'NIFTY 50', last: 22000 }] });
+    let homeVisits;
+    let stalled; // cookie value NSE stops answering for
+    let stalledCalls;
+
+    const start = async () => {
+      await new Promise((resolve) => server.close(resolve));
+      homeVisits = 0;
+      stalledCalls = 0;
+      const fetchFn = async (url, init) => {
+        const u = String(url);
+        if (u === 'https://www.nseindia.com/') {
+          homeVisits += 1;
+          return new Response('', { status: 200, headers: { 'set-cookie': `session=c${homeVisits}; Path=/` } });
+        }
+        if (u.includes('/api/allIndices')) {
+          if (init?.headers?.Cookie === stalled) {
+            stalledCalls += 1;
+            throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+          }
+          return levels();
+        }
+        return json({}, 404);
+      };
+      const { app } = createApp({ fetchFn, now: () => clock, retryDelayMs: 0, alertIntervalMs: 0 });
+      await new Promise((resolve) => { server = app.listen(0, resolve); });
+      base = `http://127.0.0.1:${server.address().port}/api`;
+    };
+
+    it('renews cookies that NSE has stopped answering for, and retries once', async () => {
+      await start();
+      stalled = 'session=c1';
+      const { res, body } = await get();
+      expect(res.status).toBe(200);
+      expect(body.indices.nifty50.last).toBe(22000);
+      expect(homeVisits).toBe(2); // the first visit, then the renewal
+    });
+
+    it('renews cookies once they are ten minutes old, before asking', async () => {
+      await start();
+      stalled = 'session=c1';
+      clock = CLOSED_MS;
+      await get(); // first visit: the cookie c1 stalls, so it renews to c2 and succeeds
+      const visits = homeVisits;
+      clock += 11 * 60_000 + 60_000; // past the data cache and the cookie lifetime
+      stalled = 'session=c2';
+      stalledCalls = 0;
+      const { res } = await get();
+      expect(res.status).toBe(200);
+      expect(homeVisits).toBeGreaterThan(visits);
+      expect(stalledCalls).toBe(0); // renewed up front, so the stalled cookie was never used
+    });
+  });
 });
