@@ -88,7 +88,7 @@ export default function Sidebar({ activeTab, onTabChange, marketLabel = null, ma
       </button>
 
       {/* Main Nav */}
-      <nav className="flex-1 flex flex-col gap-1 px-2 mt-4">
+      <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col gap-1 px-2 mt-4 sidebar-scroll">
         {menuItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -96,7 +96,7 @@ export default function Sidebar({ activeTab, onTabChange, marketLabel = null, ma
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
-              className={`flex items-center gap-3 h-10 rounded-lg px-2 transition-all duration-200 cursor-pointer ${
+              className={`flex items-center gap-3 h-10 flex-shrink-0 rounded-lg px-2 transition-all duration-200 cursor-pointer ${
                 isActive
                   ? 'text-green-400'
                   : 'text-gray-400 hover:text-gray-200'

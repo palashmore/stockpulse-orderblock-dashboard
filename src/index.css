@@ -151,3 +151,7 @@
 @media (min-width: 768px) { :root { --mobile-nav: 0px; } }
 html { -webkit-text-size-adjust: 100%; }
 body { overscroll-behavior-y: none; }
+
+/* The side menu scrolls on short windows, with a slim bar so it does not crowd the icons */
+.sidebar-scroll { scrollbar-width: thin; scrollbar-color: #1e2d3d transparent; }
+.sidebar-scroll::-webkit-scrollbar { width: 4px; }
