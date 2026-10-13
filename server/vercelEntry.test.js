@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import http from 'node:http';
-import handler from '../api/[...path].js';
+import handler from '../api/index.js';
 
 const call = (path, headers = {}) => new Promise((resolve, reject) => {
   const server = http.createServer((req, res) => handler(req, res));
@@ -19,6 +19,7 @@ describe('Vercel serverless entry', () => {
     expect(r.status).toBe(200);
     expect(JSON.parse(r.body).status).toBe('ok');
     expect((await call('/api/market-status')).status).toBe(200);
+    expect((await call('/api/history/TCS%3Bx')).status).toBe(400); // a multi-part path reaches the right route
   });
   it('keeps personal endpoints closed to visitors arriving through the platform proxy', async () => {
     for (const p of ['/api/portfolio', '/api/alerts', '/api/diagnostics']) {
