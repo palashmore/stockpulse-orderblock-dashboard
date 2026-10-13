@@ -22,7 +22,7 @@ describe('Vercel serverless entry', () => {
     expect((await call('/api/history/TCS%3Bx')).status).toBe(400); // a multi-part path reaches the right route
   });
   it('keeps personal endpoints closed to visitors arriving through the platform proxy', async () => {
-    for (const p of ['/api/alerts', '/api/diagnostics']) {
+    for (const p of ['/api/alerts']) {
       expect((await call(p, { 'x-forwarded-for': '203.0.113.7' })).status).toBe(403);
     }
   });

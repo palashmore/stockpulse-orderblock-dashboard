@@ -80,9 +80,17 @@ describe('hosted broker sessions (the browser holds the token)', () => {
     expect(positionCalls.map((c) => c.token)).toEqual(['QUFBQUFBQUE6dG9rZW4=', 'QkJCQkJCQkI6dG9rZW4=']);
   });
 
-  it('still keeps alerts and diagnostics closed to everyone arriving through the proxy', async () => {
+  it('keeps alerts closed to everyone arriving through the proxy', async () => {
     expect((await call('GET', '/alerts')).res.status).toBe(403);
-    expect((await call('GET', '/diagnostics')).res.status).toBe(403);
+  });
+
+  it('shows a reduced diagnostics view to anyone, without broker, budget or stream details or any secret', async () => {
+    const { res, body } = await call('GET', '/diagnostics');
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ hosted: true, stream: null, broker: { configured: true, connected: false, budget: null } });
+    expect(Array.isArray(body.recentErrors)).toBe(true);
+    const text = JSON.stringify(body);
+    for (const secret of ['SECRET', 'KEY', 'sessionToken', 'session_token']) expect(text).not.toContain(secret);
   });
 
   it('disconnect does nothing on the server (the browser forgets its token)', async () => {

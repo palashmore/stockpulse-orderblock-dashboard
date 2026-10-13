@@ -37,21 +37,14 @@ export default function DiagnosticsPanel() {
   }, []);
 
   if (data === undefined) return <p className="px-4 py-6 text-xs text-gray-500">Loading diagnostics…</p>;
-  if (data?.remote) {
-    return (
-      <div className="px-4 py-6 text-xs text-gray-400 space-y-2 max-w-2xl">
-        <p className="text-gray-200">API Diagnostics is not available on this address.</p>
-        <p>It shows the server&apos;s internals (request budget, live stream, recent errors), so for safety it answers only on the computer that runs the server. Run StockPulse locally (<code className="text-gray-300">npm start</code>, then open <code className="text-gray-300">http://localhost:3001</code>) to see it. This hosted copy is working normally: check <code className="text-gray-300">/api/health</code>.</p>
-      </div>
-    );
-  }
   if (data === null) {
     return <p className="px-4 py-6 text-xs" style={{ color: '#ff1744' }}>The StockPulse server is not reachable, or this page is not on the same machine as the server.</p>;
   }
 
   const { market, broker, stream, instruments, yahoo, recentErrors } = data;
+  const hosted = Boolean(data.hosted);
   const b = broker.budget;
-  const streamTone = stream.state === 'connected' ? 'good' : stream.state === 'stopped' ? undefined : 'warn';
+  const streamTone = !stream ? undefined : stream.state === 'connected' ? 'good' : stream.state === 'stopped' ? undefined : 'warn';
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3" style={{ backgroundColor: '#0a0e17' }}>
@@ -67,14 +60,14 @@ export default function DiagnosticsPanel() {
           <Row label="Holiday calendar" value={market.calendar === 'nse' ? `NSE (${market.holidaysLoaded} holidays)` : 'weekends only'} tone={market.calendar === 'nse' ? 'good' : 'warn'} />
         </Card>
 
-        <Card title="ICICI Direct (Breeze)">
+        {!hosted && <Card title="ICICI Direct (Breeze)">
           <Row label="API key configured" value={broker.configured ? 'yes' : 'no'} tone={broker.configured ? 'good' : 'warn'} />
           <Row label="Signed in" value={broker.connected ? `yes (since ${when(broker.connectedAt)})` : 'no'} tone={broker.connected ? 'good' : 'warn'} />
           <Row label="Calls this minute" value={`${b.minuteUsed} / ${b.minuteLimit}`} tone={b.minuteUsed >= b.minuteLimit * 0.8 ? 'warn' : undefined} />
           <Row label="Calls today" value={`${b.dayUsed} / ${b.dayLimit}`} tone={b.dayUsed >= b.dayLimit * 0.8 ? 'warn' : undefined} />
-        </Card>
+        </Card>}
 
-        <Card title="Live tick stream">
+        {!hosted && <Card title="Live tick stream">
           <Row label="State" value={stream.state} tone={streamTone} />
           <Row label="Subscriptions" value={`${stream.subscriptions} wanted, ${stream.joined} joined`} />
           <Row label="Ticks received" value={`${stream.ticks} quotes, ${stream.depthTicks} depth`} />
@@ -83,7 +76,14 @@ export default function DiagnosticsPanel() {
           <Row label="Rejected messages" value={stream.rejectedMessages} tone={stream.rejectedMessages > 0 ? 'warn' : undefined} />
           {stream.lastError && <Row label="Last error" value={stream.lastError} tone="bad" />}
           <Row label="Browsers watching" value={data.liveClients} />
-        </Card>
+        </Card>}
+
+        {hosted && (
+          <Card title="Hosted copy">
+            <Row label="Mode" value="serverless (no live stream or broker session kept on the server)" />
+            <Row label="Providers paused" value={data.providersPaused?.length ? data.providersPaused.map((p) => `${p.provider} ${p.resumesInSec}s`).join(', ') : 'none'} tone={data.providersPaused?.length ? 'warn' : 'good'} />
+          </Card>
+        )}
 
         <Card title="Instruments and data">
           <Row label="Instrument list" value={instruments.loaded ? `${instruments.count.toLocaleString('en-IN')} NSE stocks` : 'not loaded'} tone={instruments.loaded ? 'good' : 'warn'} />
@@ -93,14 +93,14 @@ export default function DiagnosticsPanel() {
         </Card>
       </div>
 
-      {stream.recentEvents.length > 0 && (
+      {stream && stream.recentEvents.length > 0 && (
         <Card title="Stream events">
           {stream.recentEvents.map((e, i) => <Row key={i} label={when(e.at)} value={e.message} />)}
         </Card>
       )}
 
       <Card title={`Recent errors (${recentErrors.length})`}>
-        {recentErrors.length === 0 && <p className="text-xs text-gray-600">No errors since the server started.</p>}
+        {recentErrors.length === 0 && <p className="text-xs text-gray-600">No errors since this server instance started.</p>}
         {recentErrors.map((e, i) => <Row key={i} label={`${when(e.at)} · ${e.source}`} value={e.message} tone="warn" />)}
       </Card>
 

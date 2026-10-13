@@ -1100,7 +1100,9 @@ export function createApp({
   });
 
   // ---- API diagnostics: what the server is doing and how much of ICICI's request budget is used
-  app.get('/api/diagnostics', localOnly, async (req, res) => {
+  // Hosted (serverless) copies show a reduced view to anyone: no broker session, budget or stream (they do not exist there),
+  // only market, data-provider and error information about this function instance. The full view stays local-only.
+  app.get('/api/diagnostics', hostedSessions ? (req, res, next) => next() : localOnly, async (req, res) => {
     await ensureHolidays();
     res.set('Cache-Control', 'no-store');
     const market = marketAt(now());
@@ -1111,14 +1113,17 @@ export function createApp({
         state: market.state, reason: market.reason, holiday: market.holiday, lastSession: market.lastSession,
         calendar: market.calendar, holidaysLoaded: holidays ? holidays.size : 0,
       },
-      broker: {
-        name: 'ICICI Direct Breeze',
-        configured: breeze.configured,
-        connected: breeze.isConnected(),
-        connectedAt: breeze.connectedAt() ? new Date(breeze.connectedAt()).toISOString() : null,
-        budget: breeze.budget(),
-      },
-      stream: streamHub.health(),
+      hosted: hostedSessions,
+      broker: hostedSessions
+        ? { name: 'ICICI Direct Breeze', configured: breeze.configured, connected: false, connectedAt: null, budget: null }
+        : {
+          name: 'ICICI Direct Breeze',
+          configured: breeze.configured,
+          connected: breeze.isConnected(),
+          connectedAt: breeze.connectedAt() ? new Date(breeze.connectedAt()).toISOString() : null,
+          budget: breeze.budget(),
+        },
+      stream: hostedSessions ? null : streamHub.health(),
       instruments: { loaded: Boolean(master), count: master ? master.bySymbol.size : 0, loadedAt: masterLoadedAt ? new Date(masterLoadedAt).toISOString() : null },
       yahoo: { sessionReady: Boolean(yahooAuth) },
       providersPaused: guard.paused(),
