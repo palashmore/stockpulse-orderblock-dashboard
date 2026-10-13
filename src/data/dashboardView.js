@@ -36,6 +36,9 @@ export function buildRows(quotes, stocks) {
       indices: m?.indices ?? [],
       price: q.price,
       changePct: q.changePct,
+      open: isNum(q.open) ? q.open : null,
+      high: isNum(q.high) ? q.high : null,
+      low: isNum(q.low) ? q.low : null,
       volume: isNum(q.volume) ? q.volume : null,
       relVolume: relVolume(q),
     });

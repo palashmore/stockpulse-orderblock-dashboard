@@ -141,4 +141,19 @@ describe('screenerMetrics extensions', () => {
     }
     expect(sawSwing).toBeGreaterThan(0);
   });
+
+  it('keeps the last 60 daily true ranges, newest last, matching the indicator library and ignoring the unfinished day', async () => {
+    const { trueRange } = await import('./indicators');
+    const c = daily(MIN_CANDLES + 80);
+    const m = screenerMetrics(c);
+    expect(m.ranges).toHaveLength(60);
+    expect(m.ranges.at(-1)).toBeCloseTo(trueRange(c, c.length - 1));
+    expect(m.ranges[0]).toBeCloseTo(trueRange(c, c.length - 60));
+    expect(m.ranges.every((v) => Number.isFinite(v) && v >= 0)).toBe(true);
+    const withPartial = [...c, { ...c.at(-1), time: '2099-01-01', partial: true, high: 9999, low: 1 }];
+    expect(screenerMetrics(withPartial).ranges).toEqual(m.ranges);
+    const short = screenerMetrics(daily(MIN_CANDLES));
+    expect(short.ranges).toHaveLength(MIN_CANDLES);
+  });
 });
+

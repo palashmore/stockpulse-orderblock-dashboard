@@ -1,4 +1,4 @@
-import { emaOfCloses, rsi, atr, adx, vwap, relativeVolume, priorHighLow } from './indicators';
+import { emaOfCloses, rsi, atr, adx, vwap, relativeVolume, priorHighLow, trueRange } from './indicators';
 import { swingSignals } from './strategies';
 import { detectOrderBlocks } from './marketAnalysis';
 import { nearestBlocks } from './stockLists';
@@ -62,6 +62,8 @@ export function screenerMetrics(candles) {
     aboveVwap: isNum(vw) ? c.close > vw : null,
     from20dHighPct: isNum(ph) ? ((c.close - ph) / ph) * 100 : null,
     turnoverCr: avgVol === null ? null : (avgVol * c.close) / 1e7,
+    // Daily true ranges (price units) of the last 60 completed bars, so a ranking can average over any window up to 60 days
+    ranges: done.slice(-60).map((_, k) => trueRange(done, n - Math.min(60, n) + k)),
     setup: sig ? sig.strategy : null,
     setupSide: sig ? sig.side : null,
     swing: recent

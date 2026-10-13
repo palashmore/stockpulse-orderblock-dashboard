@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { fetchIndexLevels } from '../services/api';
 
 const REFRESH_MS = 60_000;
+const RETRY_MS = 10_000; // after a failure, look again soon instead of waiting a minute
 
 /**
  * NSE index levels, refreshed every minute while `enabled`. Keeps the last good answer when a refresh fails and says so
@@ -13,14 +14,15 @@ export function useIndexLevels(enabled = true) {
   useEffect(() => {
     if (!enabled) return undefined;
     let cancelled = false;
+    let timer = null;
     const load = async () => {
       const levels = await fetchIndexLevels();
       if (cancelled) return;
       setState((s) => (levels ? { levels, failed: false, loaded: true } : { levels: s.levels, failed: true, loaded: true }));
+      timer = setTimeout(() => { if (!document.hidden) load(); else timer = setTimeout(load, REFRESH_MS); }, levels ? REFRESH_MS : RETRY_MS);
     };
-    const first = setTimeout(load, 0);
-    const timer = setInterval(() => { if (!document.hidden) load(); }, REFRESH_MS);
-    return () => { cancelled = true; clearTimeout(first); clearInterval(timer); };
+    timer = setTimeout(load, 0);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [enabled]);
 
   return state;

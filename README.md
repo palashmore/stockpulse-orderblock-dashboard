@@ -60,6 +60,11 @@ The Dashboard uses the same index selector as Stock Lists (several indices, cust
 
 Filter the breadth plot by sector, percent-change range, relative volume and swing-setup status (the last loads daily history for up to 250 stocks and is optional). Hover a dot for details, click it (or a row) to open the chart; clicking a sector bar filters to that sector. Bullish/Bearish describes the day's move, not a buy or sell signal.
 
+### Bullish and Bearish boards
+The Dashboard ranks the selected stocks on two separate boards by **strength = (price now − today's open) ÷ average daily range**, where the average daily range is the mean true range of the last N completed daily bars (N = 5 to 60 days, set in "Ranking settings"). 1.0× means the stock has moved one typical day in one direction since the open. The same formula applies to every stock; stocks without a full N-day history or an open price are not ranked, and the screen says how many were left out and why.
+
+Strength is **not a signal**. Each row shows separate checks: volume, liquidity (20-day turnover), trend and VWAP, volatility (ATR as % of price), and a still-valid same-direction swing setup with enough risk/reward. The status combines them: SETUP (valid setup and every check passes), WAIT (strong move without a valid or fully confirmed setup), NO TRADE (liquidity or volatility fails, the trend disagrees, or a valid setup points the other way) and REVIEW (the data is not current, so last session's ranking is shown for review, never as a live opportunity). Thresholds and "only list stocks that pass" switches are settings saved in your browser.
+
 ### Multi-Chart linking
 On the **Multi-Chart** screen, "Link crosshair and zoom" (on by default) makes the pointer on one chart show the same moment on all the others, and scrolling or zooming one moves them all. Charts on different timeframes line up on the nearest earlier bar. "Same stock in every chart" shows one stock everywhere: turn off "Same timeframe for all" to compare its timeframes side by side.
 

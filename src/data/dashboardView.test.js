@@ -37,6 +37,11 @@ describe('relVolume and buildRows', () => {
     expect(rows[4].sector).toBe(NO_SECTOR);
     expect(rows[2].relVolume).toBeNull();
   });
+  it('keeps open, high and low for the boards, and null when the quote has none', () => {
+    const r = buildRows([{ symbol: 'AAA', price: 10, changePct: 1, open: 9, high: 11, low: 8.5 }, { symbol: 'BBB', price: 10, changePct: 1 }], stocks).rows;
+    expect(r[0]).toMatchObject({ open: 9, high: 11, low: 8.5 });
+    expect(r[1]).toMatchObject({ open: null, high: null, low: null });
+  });
   it('lists the universe stocks that got no usable quote', () => {
     expect(unpriced).toEqual(['GONE']);
   });

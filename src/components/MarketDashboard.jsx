@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import IndexSelect from './IndexSelect';
+import MarketBoards from './MarketBoards';
 import { UnavailableState } from './DataStatusBadge';
 import { useUniverseSelection, useUniverseStocks } from '../hooks/useUniverse';
 import { useQuotesBatch } from '../hooks/useQuotesBatch';
 import { useIndexLevels } from '../hooks/useIndexLevels';
 import { useScreenerData, MAX_SCAN } from '../hooks/useScreenerData';
 import { rankStocks } from '../data/ranking';
+import { buildBoards, loadBoardConfig, saveBoardConfig } from '../data/boards';
 import { binDots, DOT_AXIS_LIMIT } from '../data/marketOverview';
 import { STATUS_META } from '../data/dataStatus';
 import {
@@ -35,7 +37,7 @@ function Stat({ label, value, color, title }) {
   );
 }
 
-function IndexCards({ cards }) {
+function IndexCards({ cards, state }) {
   if (cards.length === 0) return null;
   return (
     <div className="flex gap-2 overflow-x-auto px-4 py-2" style={rule}>
@@ -43,7 +45,7 @@ function IndexCards({ cards }) {
         <div key={c.id} className="flex-shrink-0 rounded-md px-3 py-1.5 min-w-[9.5rem]" style={{ backgroundColor: 'rgba(30, 45, 61, 0.25)', border: '1px solid rgba(30, 45, 61, 0.5)' }}>
           <div className="text-[10px] text-gray-500 truncate">{c.label}</div>
           {c.level === null ? (
-            <div className="text-[11px] text-gray-600">No NSE level reported</div>
+            <div className="text-[11px] text-gray-600">{state === 'loading' ? 'Loading level…' : state === 'failed' ? 'Level unavailable right now' : 'NSE does not report this index'}</div>
           ) : (
             <>
               <div className="flex items-baseline gap-2">
@@ -107,13 +109,19 @@ export default function MarketDashboard({ onSelectStock, demoMode = false }) {
   const levels = useIndexLevels(!demoMode);
 
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
-  const [scanOn, setScanOn] = useState(false);
+  const scanOn = true; // the boards and the signal filter both need each stock's daily history
+  const [boardConfig, setBoardConfig] = useState(() => loadBoardConfig(window.localStorage));
   const [hovered, setHovered] = useState(null);
   const [showAll, setShowAll] = useState(false);
 
   const scanStocks = useMemo(() => (stocks ? stocks.slice(0, MAX_SCAN) : []), [stocks]);
   const scan = useScreenerData(scanStocks, scanOn);
-  const signals = useMemo(() => (scanOn ? signalMap(scan.rows) : new Map()), [scanOn, scan.rows]);
+  const signals = useMemo(() => signalMap(scan.rows), [scan.rows]);
+  const metricsBySymbol = useMemo(() => new Map(scan.rows.map((r) => [r.symbol, r.metrics])), [scan.rows]);
+  const changeBoardConfig = useCallback((next) => {
+    setBoardConfig(next);
+    saveBoardConfig(next, window.localStorage);
+  }, []);
 
   const result = quotes.result;
   const { rows, unpriced } = useMemo(() => buildRows(result?.quotes, stocks), [result, stocks]);
@@ -131,7 +139,7 @@ export default function MarketDashboard({ onSelectStock, demoMode = false }) {
     if (r) onSelectStock({ symbol: r.symbol, name: r.name, sector: r.sector === 'Unclassified' ? '' : r.sector });
   };
   const set = (patch) => { setFilters((f) => ({ ...f, ...patch })); setShowAll(false); };
-  const setSignal = (signal) => { if (signal !== 'any') setScanOn(true); set({ signal }); };
+  const setSignal = (signal) => set({ signal });
 
   const maxLevel = dots.reduce((m, d) => Math.max(m, d.level), 0);
   const layout = dotLayout(maxLevel + 1, dots.length);
@@ -139,6 +147,9 @@ export default function MarketDashboard({ onSelectStock, demoMode = false }) {
 
   const status = quotes.failed ? (result ? 'STALE' : 'UNAVAILABLE') : result?.dataStatus;
   const meta = STATUS_META[status] ?? null;
+  const fresh = (status === 'LIVE' || status === 'DELAYED') && !quotes.failed;
+  const boardRows = useMemo(() => (filters.sector ? rows.filter((r) => r.sector === filters.sector) : rows), [rows, filters.sector]);
+  const boards = useMemo(() => buildBoards(boardRows, metricsBySymbol, boardConfig, fresh), [boardRows, metricsBySymbol, boardConfig, fresh]);
   const levelMeta = levels.levels ? STATUS_META[levels.failed ? 'STALE' : levels.levels.dataStatus] : null;
 
   if (demoMode) return <p className="px-4 py-6 text-xs text-gray-500">The Dashboard needs real market data and is off in simulated mode.</p>;
@@ -188,7 +199,7 @@ export default function MarketDashboard({ onSelectStock, demoMode = false }) {
         {levelMeta && <> · index levels <span style={{ color: levelMeta.color }}>{levelMeta.label}</span></>}
       </p>
 
-      <IndexCards cards={cards} />
+      <IndexCards cards={cards} state={!levels.loaded ? 'loading' : levels.levels ? 'ok' : 'failed'} />
 
       <div className="flex flex-wrap" style={rule}>
         <Stat label="Advancers" value={stats.breadth.advancers} color={GREEN} title="Stocks in the selected universe that are up on the day" />
@@ -201,6 +212,17 @@ export default function MarketDashboard({ onSelectStock, demoMode = false }) {
         <Stat label="Leading sector" value={stats.sectors.leading ? stats.sectors.leading.sector : '—'} color={GREEN} />
         <Stat label="Lagging sector" value={stats.sectors.lagging ? stats.sectors.lagging.sector : '—'} color={RED} />
       </div>
+
+      <MarketBoards
+        boards={boards}
+        config={boardConfig}
+        onConfig={changeBoardConfig}
+        fresh={fresh}
+        scan={scan}
+        onOpen={open}
+        asOf={stamp(result.asOf)}
+        sector={filters.sector}
+      />
 
       <section style={rule}>
         <div className="flex flex-wrap items-end gap-3 px-4 py-2">
@@ -237,13 +259,9 @@ export default function MarketDashboard({ onSelectStock, demoMode = false }) {
           )}
         </div>
         <div className="px-4 pb-2 text-[11px] text-gray-500 flex flex-wrap items-center gap-x-3 gap-y-1">
-          <label className="flex items-center gap-1.5 cursor-pointer text-gray-400">
-            <input type="checkbox" checked={scanOn} onChange={(e) => { setScanOn(e.target.checked); if (!e.target.checked) set({ signal: 'any' }); }} aria-label="Include swing-setup status" />
-            Include swing-setup status (loads daily history for up to {MAX_SCAN} stocks)
-          </label>
-          {scanOn && scan.loading && <span>scanning {scan.done} of {scan.total}…</span>}
-          {scanOn && !scan.loading && scan.total > 0 && <span>{scan.rows.length} stocks scanned{scan.excluded.length ? `, ${scan.excluded.length} without usable history` : ''}{stocks.length > MAX_SCAN ? `; only the first ${MAX_SCAN} of ${stocks.length} are scanned` : ''}</span>}
-          {filters.signal !== 'any' && filtered.unknownSignal > 0 && <span>{filtered.unknownSignal} stocks not scanned yet are not matched</span>}
+          {scan.loading && <span>loading swing-setup status and daily history: {scan.done} of {scan.total}…</span>}
+          {!scan.loading && scan.total > 0 && <span>swing-setup status: {scan.rows.length} stocks scanned{scan.excluded.length ? `, ${scan.excluded.length} without usable history` : ''}{stocks.length > MAX_SCAN ? `; only the first ${MAX_SCAN} of ${stocks.length} are scanned` : ''}</span>}
+          {filters.signal !== 'any' && filtered.unknownSignal > 0 && <span>{filtered.unknownSignal} stocks without a scan result are not matched</span>}
         </div>
       </section>
 
@@ -257,7 +275,7 @@ export default function MarketDashboard({ onSelectStock, demoMode = false }) {
               <span className="text-gray-200 font-medium">{hoveredRow.symbol}</span> {px(hoveredRow.price)} <span style={{ color: tone(hoveredRow.changePct) }}>{pct(hoveredRow.changePct)}</span>
               {' · '}rel vol {Number.isFinite(hoveredRow.relVolume) ? `${hoveredRow.relVolume.toFixed(1)}x` : '—'}
               {' · '}{hoveredRow.sector}
-              {' · '}{scanOn ? (signals.has(hoveredRow.symbol) ? SIGNAL_TEXT[signals.get(hoveredRow.symbol)] : 'signal not scanned') : 'signal: turn on swing-setup status'}
+              {' · '}{signals.has(hoveredRow.symbol) ? SIGNAL_TEXT[signals.get(hoveredRow.symbol)] : 'signal not scanned yet'}
             </>
           ) : 'Hover a dot for details; click it to open the chart.'}
         </p>
