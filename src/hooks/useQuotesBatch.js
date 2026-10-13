@@ -12,11 +12,11 @@ export function useQuotesBatch(symbols, enabled = true) {
   const [state, setState] = useState({ key: '', result: null, failed: false, loading: false });
   const run = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     if (!key) return;
     const id = ++run.current;
     setState((s) => ({ ...s, loading: true }));
-    const result = await fetchQuotes(key.split(','));
+    const result = await fetchQuotes(key.split(','), { force: force === true });
     if (id !== run.current) return;
     setState((s) => (result
       ? { key, result, failed: false, loading: false }
@@ -26,10 +26,10 @@ export function useQuotesBatch(symbols, enabled = true) {
   useEffect(() => {
     if (!enabled || !key) return undefined;
     load();
-    const timer = setInterval(load, REFRESH_MS);
+    const timer = setInterval(() => load(true), REFRESH_MS); // the refresh timer always asks for fresh prices
     return () => { clearInterval(timer); run.current++; };
   }, [enabled, key, load]);
 
   const current = state.key === key;
-  return { result: current ? state.result : null, failed: current ? state.failed : false, loading: !key ? false : !current || state.loading, reload: load };
+  return { result: current ? state.result : null, failed: current ? state.failed : false, loading: !key ? false : !current || state.loading, reload: () => load(true) };
 }

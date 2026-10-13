@@ -15,10 +15,12 @@ export function useIndexLevels(enabled = true) {
     if (!enabled) return undefined;
     let cancelled = false;
     let timer = null;
+    let scheduled = false; // the first load may use the stored copy; every scheduled refresh asks again
     const load = async () => {
-      const levels = await fetchIndexLevels();
+      const levels = await fetchIndexLevels({ force: scheduled });
       if (cancelled) return;
       setState((s) => (levels ? { levels, failed: false, loaded: true } : { levels: s.levels, failed: true, loaded: true }));
+      scheduled = true;
       timer = setTimeout(() => { if (!document.hidden) load(); else timer = setTimeout(load, REFRESH_MS); }, levels ? REFRESH_MS : RETRY_MS);
     };
     timer = setTimeout(load, 0);

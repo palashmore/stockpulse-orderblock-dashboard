@@ -134,7 +134,7 @@ export default function StockQuickView({ stock, row, market, onClose, onOpen }) 
       {view && (
         <>
           <div className="px-2 pt-2" style={{ height: 260 }}>
-            <TradingChart candleData={view.candles} indicators={INDICATORS} orderBlocks={showZones ? view.blocks : []} />
+            <TradingChart candleData={view.candles} indicators={INDICATORS} orderBlocks={showZones ? view.blocks : null} resetKey={symbol} />
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-1.5 text-[10px] text-gray-500" style={rule}>
             <span>EMA 20 / 50 / 200 and VWAP on daily candles</span>

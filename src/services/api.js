@@ -1,3 +1,5 @@
+import { createLoadCache } from '../data/loadCache';
+
 // The API lives on port 3001 of whatever host served this page, so the app also works when opened from a
 // phone on the same network. VITE_API_BASE overrides it (for example for a hosted server).
 export function resolveApiBase(env = {}, location = null) {
@@ -12,6 +14,27 @@ export const API_BASE = resolveApiBase(import.meta.env, typeof window !== 'undef
 export function retryDelayMs(value, maxSeconds = 20) {
   const seconds = Number(value);
   return (Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, maxSeconds) : 5) * 1000;
+}
+
+// Read-only market data is kept for a short time and shared: opening another screen that needs the same data (or the same
+// screen again) gets it at once instead of waiting for a new request, and two screens asking at the same moment share one
+// request. A failed request is remembered for only a few seconds, so a retry is quick. `force` skips the stored copy.
+const responses = createLoadCache({ ttlMs: 60_000, failTtlMs: 3_000, max: 600 });
+export const clearApiCache = () => responses.clear();
+
+const TTL = {
+  quotes: 20_000,
+  nifty50: 20_000,
+  levels: 30_000,
+  historyDaily: 3 * 60_000,
+  historyIntraday: 45_000,
+  menus: 10 * 60_000,
+  marketStatus: 15_000,
+};
+
+async function cachedRequest(endpoint, ttlMs, { force = false, ...options } = {}) {
+  if (force) responses.clear(endpoint);
+  return responses.get(endpoint, () => apiRequest(endpoint, options), undefined, ttlMs);
 }
 
 // Helper to make API calls with timeout and error handling.
@@ -63,10 +86,13 @@ export async function fetchQuote(symbol) {
 }
 
 // Get historical candle data: { candles, dataStatus, asOf, provider, ... }
-export async function fetchHistory(symbol, range = '6mo', interval = '1d', { bulk = false } = {}) {
-  const data = await apiFetch(
-    `/history/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}${bulk ? '&bulk=1' : ''}`
+export async function fetchHistory(symbol, range = '6mo', interval = '1d', { bulk = false, force = false } = {}) {
+  const result = await cachedRequest(
+    `/history/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}${bulk ? '&bulk=1' : ''}`,
+    interval === '1d' || interval === '1wk' ? TTL.historyDaily : TTL.historyIntraday,
+    { force },
   );
+  const data = result ? result.data : null;
   return data?.candles?.length ? data : null;
 }
 
@@ -76,8 +102,8 @@ export async function fetchOptions(symbol) {
 }
 
 // Get all Nifty 50 quotes: { quotes, dataStatus, asOf, staleAgeSec } (status comes from response headers)
-export async function fetchNifty50() {
-  const result = await apiRequest('/nifty50');
+export async function fetchNifty50({ force = false } = {}) {
+  const result = await cachedRequest('/nifty50', TTL.nifty50, { force });
   if (!result || !Array.isArray(result.data)) return null;
   const { headers } = result;
   return {
@@ -97,7 +123,8 @@ export async function searchStocks(query) {
 
 // Get market status
 export async function fetchMarketStatus() {
-  return await apiFetch('/market-status');
+  const result = await cachedRequest('/market-status', TTL.marketStatus);
+  return result ? result.data : null;
 }
 
 // Broker sign-in (server runs on this machine; these calls are loopback-only)
@@ -152,7 +179,8 @@ export async function fetchBroker(path) {
 
 // Index lists (Nifty 50, Midcap, Smallcap, sectors...) and quotes for any list of symbols
 export async function fetchIndices() {
-  return await apiFetch('/indices');
+  const result = await cachedRequest('/indices', TTL.menus);
+  return result ? result.data : null;
 }
 
 export async function fetchIndexStocks(id) {
@@ -161,11 +189,12 @@ export async function fetchIndexStocks(id) {
 }
 
 // Resolves { quotes, missing, dataStatus, asOf, provider } or null. Symbols are sent in requests of up to 250.
-export async function fetchQuotes(symbols) {
+export async function fetchQuotes(symbols, { force = false } = {}) {
   const unique = [...new Set(symbols)];
   const parts = [];
   for (let i = 0; i < unique.length; i += 250) {
-    const part = await apiFetch(`/quotes?symbols=${unique.slice(i, i + 250).map(encodeURIComponent).join(',')}`);
+    const result = await cachedRequest(`/quotes?symbols=${unique.slice(i, i + 250).map(encodeURIComponent).join(',')}`, TTL.quotes, { force });
+    const part = result ? result.data : null;
     if (!part) return parts.length ? mergeQuoteParts(parts) : null;
     parts.push(part);
   }
@@ -234,6 +263,7 @@ export async function fetchIpos() {
 }
 
 // Level and day change of the configured NSE indices. Resolves { indices, missing, dataStatus, asOf, fetchedAt } or null.
-export async function fetchIndexLevels() {
-  return await apiFetch('/index-levels');
+export async function fetchIndexLevels({ force = false } = {}) {
+  const result = await cachedRequest('/index-levels', TTL.levels, { force });
+  return result ? result.data : null;
 }

@@ -45,11 +45,11 @@ export function TimeframeBar({ timeframe, onTimeframeChange, demoMode, indicator
 }
 
 // The main chart: candles, volume, configurable indicators and order blocks, on the shared TradingChart
-export default function StockChart({ candleData, orderBlocks, timeframe, onTimeframeChange, demoMode, indicators, onIndicatorsChange }) {
+export default function StockChart({ candleData, orderBlocks, stockSymbol = '', timeframe, onTimeframeChange, demoMode, indicators, onIndicatorsChange }) {
   return (
     <div className="flex flex-col h-full w-full">
       <TimeframeBar timeframe={timeframe} onTimeframeChange={onTimeframeChange} demoMode={demoMode} indicators={indicators} onIndicatorsChange={onIndicatorsChange} />
-      <TradingChart candleData={candleData} orderBlocks={orderBlocks} indicators={indicators} intraday={getTimeframe(timeframe).intraday} />
+      <TradingChart candleData={candleData} orderBlocks={orderBlocks} indicators={indicators} intraday={getTimeframe(timeframe).intraday} resetKey={`${stockSymbol}|${timeframe}`} />
     </div>
   );
 }

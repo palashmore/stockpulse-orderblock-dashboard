@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { resolveApiBase, retryDelayMs, fetchQuotes } from './api';
+import { resolveApiBase, retryDelayMs, fetchQuotes, fetchHistory, fetchIndexLevels, clearApiCache } from './api';
 
 describe('resolveApiBase', () => {
   it('uses port 3001 on the host that served the page, so a phone on the same network reaches it', () => {
@@ -21,6 +21,7 @@ describe('busy server (HTTP 429)', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    clearApiCache();
   });
 
   it('reads Retry-After, capped, with a default', () => {
@@ -59,3 +60,81 @@ describe('busy server (HTTP 429)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('stored and shared responses', () => {
+  const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: {} });
+  const history = { candles: [{ time: '2026-10-12', open: 1, high: 2, low: 0.5, close: 1.5 }], dataStatus: 'HISTORICAL' };
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    clearApiCache();
+  });
+
+  it('serves the same history again without a new request, until it is old', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockImplementation(async () => reply(history));
+    vi.stubGlobal('fetch', fetchMock);
+    expect((await fetchHistory('TCS', '6mo', '1d')).candles).toHaveLength(1);
+    await fetchHistory('TCS', '6mo', '1d');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(3 * 60_000 + 1000);
+    await fetchHistory('TCS', '6mo', '1d');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps intraday data for a much shorter time than daily data', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockImplementation(async () => reply(history));
+    vi.stubGlobal('fetch', fetchMock);
+    await fetchHistory('TCS', '5d', '5m');
+    await vi.advanceTimersByTimeAsync(46_000);
+    await fetchHistory('TCS', '5d', '5m');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares one request between callers that ask at the same moment', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const fetchMock = vi.fn().mockImplementation(async () => { await gate; return reply(history); });
+    vi.stubGlobal('fetch', fetchMock);
+    const a = fetchHistory('INFY', '6mo', '1d');
+    const b = fetchHistory('INFY', '6mo', '1d');
+    release();
+    expect((await Promise.all([a, b])).every((h) => h.candles.length === 1)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps different stocks and timeframes apart', async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => reply(history));
+    vi.stubGlobal('fetch', fetchMock);
+    await fetchHistory('TCS', '6mo', '1d');
+    await fetchHistory('INFY', '6mo', '1d');
+    await fetchHistory('TCS', '1y', '1d');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('asks again on request (force), and soon after a failure, never keeping an error for long', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(reply({ error: 'x' }, 500))
+      .mockImplementation(async () => reply({ indices: {}, missing: [], dataStatus: 'DELAYED' }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await fetchIndexLevels()).toBeNull();
+    expect(await fetchIndexLevels()).toBeNull(); // a failure is remembered for a moment only
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(3100);
+    expect((await fetchIndexLevels()).dataStatus).toBe('DELAYED');
+    await fetchIndexLevels();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await fetchIndexLevels({ force: true });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not store a history response that has no candles as if it were good', async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => reply({ candles: [], dataStatus: 'UNAVAILABLE' }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await fetchHistory('ZZZ', '6mo', '1d')).toBeNull();
+  });
+});
+

@@ -70,6 +70,11 @@ Under the boards, the Dashboard has one tabbed section: **High volume, Intraday 
 
 Clicking a stock opens a **quick view** panel without leaving the Dashboard: daily chart with EMA 20/50/200 and VWAP (order block zones optional), relative volume, RSI/ADX, trend, support/resistance, the nearest order blocks, separate intraday and swing status, add-to-watchlist and a server price alert. **Entry, stop and targets appear only while a setup is still valid and the data is current**; a stopped, expired or last-session signal shows its status and no levels. "Open full chart" goes to the chart with the stock selected.
 
+### Speed and stability
+* **Charts keep your zoom.** The price chart is created once; new candles, indicator switches, order block zones and live updates are applied to the existing chart. It refits only when the stock or timeframe changes (or the theme, which needs new colours).
+* **Screens share data.** The app keeps recent market data for a short time (quotes 20 s, daily history 3 min, intraday history 45 s, index lists 10 min) and shares one request between screens that ask at once, so opening another tab does not wait for data that was just loaded. Refresh buttons and the one-minute refresh timers always ask for fresh data. Stock scans keep each stock's result for 10 minutes and resume where they stopped.
+* **A struggling provider is paused, not hammered.** If Yahoo or NSE cannot be reached three times in a row, or answers HTTP 429, the server stops calling it for 20 to 30 seconds (or the provider's own `Retry-After`): requests fail at once or use the last good copy (labelled `STALE`) instead of each waiting out a 10-15 second timeout. Paused providers are listed on the API Diagnostics screen.
+
 ### Multi-Chart linking
 On the **Multi-Chart** screen, "Link crosshair and zoom" (on by default) makes the pointer on one chart show the same moment on all the others, and scrolling or zooming one moves them all. Charts on different timeframes line up on the nearest earlier bar. "Same stock in every chart" shows one stock everywhere: turn off "Same timeframe for all" to compare its timeframes side by side.
 

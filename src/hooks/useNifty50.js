@@ -32,8 +32,8 @@ function demoQuotes() {
 export function useNifty50(demoMode) {
   const [state, setState] = useState({ quotes: [], status: null, asOf: null, failed: false, loaded: false });
 
-  const load = useCallback(async () => {
-    const result = await fetchNifty50();
+  const load = useCallback(async (force = false) => {
+    const result = await fetchNifty50({ force: force === true });
     setState((prev) => {
       if (!result) return { ...prev, failed: true, loaded: true };
       return { quotes: result.quotes, status: result.dataStatus, asOf: result.asOf, failed: false, loaded: true };
@@ -42,13 +42,13 @@ export function useNifty50(demoMode) {
 
   useEffect(() => {
     if (demoMode) return;
-    load();
-    const interval = setInterval(load, REFRESH_MS);
+    load(); // may use a copy fetched a moment ago by another screen
+    const interval = setInterval(() => load(true), REFRESH_MS);
     return () => clearInterval(interval);
   }, [demoMode, load]);
 
   const demo = useMemo(() => (demoMode ? demoQuotes() : []), [demoMode]);
 
-  if (demoMode) return { quotes: demo, status: 'SIMULATED', asOf: null, failed: false, loaded: true, retry: load };
-  return { ...state, retry: load };
+  if (demoMode) return { quotes: demo, status: 'SIMULATED', asOf: null, failed: false, loaded: true, retry: () => load(true) };
+  return { ...state, retry: () => load(true) };
 }

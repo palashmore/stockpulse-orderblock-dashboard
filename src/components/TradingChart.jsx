@@ -13,13 +13,25 @@ import { OVERLAYS, DEFAULT_INDICATORS, toLine, compare, normaliseTime, buildSign
 import { useTheme } from '../hooks/useTheme';
 import { chartColors } from '../data/theme';
 import { nearestAtOrBefore, clampRange } from '../data/chartLink';
+import { dataKey, needsRefit } from '../data/chartData';
 
-export default function TradingChart({ candleData, orderBlocks = [], indicators = DEFAULT_INDICATORS, signals = [], trades = [], selectedId = null, onSelectSignal, intraday = false, link = null, linkId = null }) {
+/**
+ * Price chart. The chart itself is created once (and again only when the theme, the timeframe style or the link change).
+ * New candles, indicator switches, zones and markers are applied to the existing chart, so a parent re-render, a price tick
+ * or a refresh never resets the zoom or scroll position. The view is refitted only when the stock or timeframe really
+ * changes (`resetKey` when the caller knows it, otherwise the first candle and the size of the history).
+ */
+export default function TradingChart({ candleData, orderBlocks = null, indicators = DEFAULT_INDICATORS, signals = [], trades = [], selectedId = null, onSelectSignal, intraday = false, link = null, linkId = null, resetKey = '' }) {
   const { theme } = useTheme();
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const candleSeriesRef = useRef(null);
+  const volumeSeriesRef = useRef(null);
+  const markersApiRef = useRef(null);
+  const dynamicRef = useRef([]); // overlay and indicator series, replaced when the data or switches change
   const priceLinesRef = useRef([]);
+  const fitRef = useRef({ key: '', length: 0 });
+  const candleRef = useRef(candleData);
   const signalsRef = useRef(signals);
   const onSelectRef = useRef(onSelectSignal);
 
@@ -28,12 +40,26 @@ export default function TradingChart({ candleData, orderBlocks = [], indicators 
     onSelectRef.current = onSelectSignal;
   }, [signals, onSelectSignal]);
 
-  const indicatorKey = JSON.stringify(indicators);
   const markers = useMemo(() => buildSignalMarkers(signals, trades, candleData || []), [signals, trades, candleData]);
+  // Content keys: a new array with the same content must not trigger work
+  const indicatorKey = JSON.stringify(indicators);
+  const candlesKey = dataKey(candleData);
+  const blocksKey = JSON.stringify((orderBlocks || []).slice(-10).map((b) => [b.time, b.type]));
+  const markersKey = JSON.stringify(markers);
+  const indicatorsRef = useRef(indicators);
+  const blocksRef = useRef(orderBlocks);
+  const markersRef = useRef(markers);
+  useEffect(() => {
+    candleRef.current = candleData;
+    indicatorsRef.current = indicators;
+    blocksRef.current = orderBlocks;
+    markersRef.current = markers;
+  });
 
+  // 1. The chart and its fixed parts: candles, volume, crosshair/zoom link, click handling, resizing
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !candleData || candleData.length === 0) return undefined;
+    if (!container) return undefined;
 
     const colors = chartColors(theme);
     const chart = createChart(container, {
@@ -50,12 +76,16 @@ export default function TradingChart({ candleData, orderBlocks = [], indicators 
       height: container.clientHeight || 400,
     });
     chartRef.current = chart;
+    fitRef.current = { key: '', length: 0 }; // a new chart has no view to keep
 
     const candles = chart.addSeries(CandlestickSeries, {
       upColor: colors.up, downColor: colors.down, borderDownColor: colors.down, borderUpColor: colors.up, wickDownColor: colors.down, wickUpColor: colors.up,
     });
-    candles.setData(candleData);
     candleSeriesRef.current = candles;
+    const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
+    chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+    volumeSeriesRef.current = volume;
+    markersApiRef.current = createSeriesMarkers(candles, []);
 
     // Crosshair and zoom linking with other charts (Multi-Chart). Events caused by following another chart are not
     // sent back out (a short mute), and any chart call that fails (a chart being removed) is ignored.
@@ -66,7 +96,7 @@ export default function TradingChart({ candleData, orderBlocks = [], indicators 
       const guarded = (fn) => { try { fn(); } catch { /* the chart was disposed or has no such time */ } };
       unregisterLink = link.register(linkId, {
         show(time) {
-          const bar = nearestAtOrBefore(candleData, time);
+          const bar = nearestAtOrBefore(candleRef.current, time);
           mute();
           if (!bar) guarded(() => chart.clearCrosshairPosition());
           else guarded(() => chart.setCrosshairPosition(bar.close, bar.time, candles));
@@ -76,7 +106,7 @@ export default function TradingChart({ candleData, orderBlocks = [], indicators 
           guarded(() => chart.clearCrosshairPosition());
         },
         setRange(range) {
-          const clamped = clampRange(candleData, range);
+          const clamped = clampRange(candleRef.current, range);
           if (!clamped) return;
           mute();
           guarded(() => chart.timeScale().setVisibleRange(clamped));
@@ -92,75 +122,12 @@ export default function TradingChart({ candleData, orderBlocks = [], indicators 
       });
     }
 
-    // Volume (only bars that actually have a volume figure)
-    const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
-    chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
-    volume.setData(
-      candleData
-        .filter((d) => Number.isFinite(d.volume))
-        .map((d) => ({ time: d.time, value: d.volume, color: d.close >= d.open ? colors.volumeUp : colors.volumeDown }))
-    );
-
-    // Overlays on the price pane
-    for (const o of OVERLAYS) {
-      if (!indicators[o.key]) continue;
-      const line = chart.addSeries(LineSeries, { color: o.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, lineStyle: o.key === 'vwap' ? 2 : 0 });
-      line.setData(toLine(candleData, o.build(candleData)));
-    }
-
-    // Indicator panes below the price chart
-    let pane = 1;
-    const paneLine = (color, data, opts = {}) => {
-      const s = chart.addSeries(LineSeries, { color, lineWidth: 1, priceLineVisible: false, lastValueVisible: true, ...opts }, pane);
-      s.setData(data);
-      return s;
-    };
-    if (indicators.rsi) {
-      const s = paneLine('#ba68c8', toLine(candleData, rsi(candleData, 14)));
-      s.createPriceLine({ price: 70, color: 'rgba(255,23,68,0.4)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
-      s.createPriceLine({ price: 30, color: 'rgba(0,230,118,0.4)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
-      pane++;
-    }
-    if (indicators.macd) {
-      const m = macd(candleData);
-      const hist = chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false }, pane);
-      hist.setData(candleData.flatMap((c, i) => (m.hist[i] === null ? [] : [{ time: c.time, value: m.hist[i], color: m.hist[i] >= 0 ? 'rgba(0,230,118,0.5)' : 'rgba(255,23,68,0.5)' }])));
-      chart.addSeries(LineSeries, { color: '#2196f3', lineWidth: 1, priceLineVisible: false, lastValueVisible: false }, pane).setData(toLine(candleData, m.macd));
-      chart.addSeries(LineSeries, { color: '#ff9100', lineWidth: 1, priceLineVisible: false, lastValueVisible: false }, pane).setData(toLine(candleData, m.signal));
-      pane++;
-    }
-    if (indicators.adx) {
-      const a = adx(candleData, 14);
-      paneLine('#ffd600', toLine(candleData, a.adx));
-      paneLine('#00e676', toLine(candleData, a.plusDI), { lastValueVisible: false });
-      paneLine('#ff1744', toLine(candleData, a.minusDI), { lastValueVisible: false });
-      pane++;
-    }
-    try {
-      const panes = chart.panes();
-      panes.forEach((p, i) => { if (i > 0) p.setStretchFactor(0.35); });
-    } catch {
-      // older chart builds without pane sizing: default sizes are fine
-    }
-
-    // Order blocks (existing method) plus Buy/Sell markers
-    const ob = (orderBlocks || []).slice(-10).map((b) => ({
-      time: b.time,
-      position: b.type === 'bullish' ? 'belowBar' : 'aboveBar',
-      color: b.type === 'bullish' ? 'rgba(0,230,118,0.55)' : 'rgba(255,23,68,0.55)',
-      shape: b.type === 'bullish' ? 'arrowUp' : 'arrowDown',
-      text: 'OB',
-    }));
-    createSeriesMarkers(candles, [...ob, ...markers].sort(compare));
-
     chart.subscribeClick((param) => {
       const t = normaliseTime(param?.time);
       if (t === undefined || t === null) return;
       const hit = signalsRef.current.find((s) => s.time === t);
       onSelectRef.current?.(hit ? hit.id : null);
     });
-
-    chart.timeScale().fitContent();
 
     const resize = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -173,28 +140,122 @@ export default function TradingChart({ candleData, orderBlocks = [], indicators 
       resize.disconnect();
       if (unregisterLink) unregisterLink();
       priceLinesRef.current = [];
+      dynamicRef.current = [];
       candleSeriesRef.current = null;
+      volumeSeriesRef.current = null;
+      markersApiRef.current = null;
       chart.remove();
       chartRef.current = null;
     };
-    // The chart is rebuilt when the data, indicator set or markers change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candleData, orderBlocks, indicatorKey, markers, intraday, theme, link, linkId]);
+  }, [theme, intraday, link, linkId]);
 
-  // Entry / stop / target lines for the selected signal, without rebuilding the chart
+  // 2. The data: candles, volume, overlays, indicator panes and markers, applied to the existing chart
+  useEffect(() => {
+    const chart = chartRef.current;
+    const candles = candleSeriesRef.current;
+    const volume = volumeSeriesRef.current;
+    const data = candleRef.current;
+    if (!chart || !candles || !volume || !data || data.length === 0) return;
+    const colors = chartColors(theme);
+    const inds = indicatorsRef.current || DEFAULT_INDICATORS;
+
+    // Keep the view the user has chosen unless this is a different stock or timeframe
+    const refit = needsRefit(fitRef.current, { resetKey, data });
+    let range = null;
+    if (!refit) {
+      try { range = chart.timeScale().getVisibleLogicalRange(); } catch { range = null; }
+    }
+
+    candles.setData(data);
+    volume.setData(
+      data
+        .filter((d) => Number.isFinite(d.volume))
+        .map((d) => ({ time: d.time, value: d.volume, color: d.close >= d.open ? colors.volumeUp : colors.volumeDown }))
+    );
+
+    for (const s of dynamicRef.current) {
+      try { chart.removeSeries(s); } catch { /* already gone with its chart */ }
+    }
+    const added = [];
+    const add = (type, options, pane) => {
+      const series = pane === undefined ? chart.addSeries(type, options) : chart.addSeries(type, options, pane);
+      added.push(series);
+      return series;
+    };
+
+    for (const o of OVERLAYS) {
+      if (!inds[o.key]) continue;
+      add(LineSeries, { color: o.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, lineStyle: o.key === 'vwap' ? 2 : 0 }).setData(toLine(data, o.build(data)));
+    }
+
+    // Indicator panes below the price chart
+    let pane = 1;
+    const paneLine = (color, values, opts = {}) => {
+      const s = add(LineSeries, { color, lineWidth: 1, priceLineVisible: false, lastValueVisible: true, ...opts }, pane);
+      s.setData(values);
+      return s;
+    };
+    if (inds.rsi) {
+      const s = paneLine('#ba68c8', toLine(data, rsi(data, 14)));
+      s.createPriceLine({ price: 70, color: 'rgba(255,23,68,0.4)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+      s.createPriceLine({ price: 30, color: 'rgba(0,230,118,0.4)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+      pane++;
+    }
+    if (inds.macd) {
+      const m = macd(data);
+      add(HistogramSeries, { priceLineVisible: false, lastValueVisible: false }, pane)
+        .setData(data.flatMap((c, i) => (m.hist[i] === null ? [] : [{ time: c.time, value: m.hist[i], color: m.hist[i] >= 0 ? 'rgba(0,230,118,0.5)' : 'rgba(255,23,68,0.5)' }])));
+      add(LineSeries, { color: '#2196f3', lineWidth: 1, priceLineVisible: false, lastValueVisible: false }, pane).setData(toLine(data, m.macd));
+      add(LineSeries, { color: '#ff9100', lineWidth: 1, priceLineVisible: false, lastValueVisible: false }, pane).setData(toLine(data, m.signal));
+      pane++;
+    }
+    if (inds.adx) {
+      const a = adx(data, 14);
+      paneLine('#ffd600', toLine(data, a.adx));
+      paneLine('#00e676', toLine(data, a.plusDI), { lastValueVisible: false });
+      paneLine('#ff1744', toLine(data, a.minusDI), { lastValueVisible: false });
+      pane++;
+    }
+    dynamicRef.current = added;
+    try {
+      chart.panes().forEach((p, i) => { if (i > 0) p.setStretchFactor(0.35); });
+    } catch {
+      // older chart builds without pane sizing: default sizes are fine
+    }
+
+    // Order blocks plus Buy/Sell markers
+    const ob = (blocksRef.current || []).slice(-10).map((b) => ({
+      time: b.time,
+      position: b.type === 'bullish' ? 'belowBar' : 'aboveBar',
+      color: b.type === 'bullish' ? 'rgba(0,230,118,0.55)' : 'rgba(255,23,68,0.55)',
+      shape: b.type === 'bullish' ? 'arrowUp' : 'arrowDown',
+      text: 'OB',
+    }));
+    markersApiRef.current?.setMarkers([...ob, ...markersRef.current].sort(compare));
+
+    if (refit || !range) chart.timeScale().fitContent();
+    else {
+      try { chart.timeScale().setVisibleLogicalRange(range); } catch { /* range no longer valid: keep the chart's own */ }
+    }
+    fitRef.current = { key: needsRefit.keyOf(resetKey, data), length: data.length };
+  }, [candlesKey, indicatorKey, blocksKey, markersKey, theme, intraday, link, linkId, resetKey]);
+
+  // Entry / stop / target lines for the selected signal, without rebuilding anything
   useEffect(() => {
     const series = candleSeriesRef.current;
     if (!series) return;
-    for (const line of priceLinesRef.current) series.removePriceLine(line);
+    for (const line of priceLinesRef.current) {
+      try { series.removePriceLine(line); } catch { /* the chart was rebuilt */ }
+    }
     priceLinesRef.current = [];
     const s = signals.find((x) => x.id === selectedId);
     if (!s) return;
-    const add = (price, color, title) => priceLinesRef.current.push(series.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title }));
-    add(s.entry, '#90a4ae', 'Entry');
-    add(s.stop, '#ff1744', 'Stop');
-    add(s.target1, '#69f0ae', 'T1');
-    add(s.target2, '#00e676', 'T2');
-  }, [selectedId, signals, candleData, indicatorKey, markers]);
+    const addLine = (price, color, title) => priceLinesRef.current.push(series.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title }));
+    addLine(s.entry, '#90a4ae', 'Entry');
+    addLine(s.stop, '#ff1744', 'Stop');
+    addLine(s.target1, '#69f0ae', 'T1');
+    addLine(s.target2, '#00e676', 'T2');
+  }, [selectedId, signals, candlesKey, indicatorKey, markersKey, theme, intraday, link, linkId]);
 
   return <div ref={containerRef} className="flex-1 min-h-[250px] w-full" />;
 }

@@ -61,7 +61,7 @@ function ChartCell({ symbol, frame, onSymbol, onFrame, linked, expanded, onExpan
 
   useEffect(() => {
     let cancelled = false;
-    fetchHistory(symbol, frame.range, frame.interval).then((h) => {
+    fetchHistory(symbol, frame.range, frame.interval, { force: reloadTick > 0 }).then((h) => {
       if (cancelled) return;
       setState(h ? { request, status: 'ready', data: h, error: '' } : { request, status: 'error', data: null, error: 'No data for this stock and timeframe' });
     });
@@ -102,7 +102,7 @@ function ChartCell({ symbol, frame, onSymbol, onFrame, linked, expanded, onExpan
             <button onClick={() => setReloadTick((t) => t + 1)} className="mt-2 underline cursor-pointer" style={{ color: '#00e5ff' }}>Retry</button>
           </div>
         )}
-        {!loading && candles.length > 0 && <TradingChart candleData={candles} indicators={INDICATORS} intraday={frame.intraday} link={link} linkId={linkId} />}
+        {!loading && candles.length > 0 && <TradingChart candleData={candles} indicators={INDICATORS} intraday={frame.intraday} link={link} linkId={linkId} resetKey={request} />}
       </div>
 
       {data && <p className="px-2 py-1 text-[10px] text-gray-600 flex-shrink-0">{data.provider} · as of {typeof data.asOf === 'string' && data.asOf.includes('T') ? `${new Date(data.asOf).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} IST` : data.asOf}</p>}

@@ -30,6 +30,7 @@ import { parseGmpPage } from './ipoGmp.js';
 import { parseAllIndices, matchIndexLevels } from './indexLevels.js';
 import { parseNseHolidays, getMarketState, markPartialCandles } from './marketCalendar.js';
 import { createRateLimiter, createConcurrencyLimiter } from './limits.js';
+import { createProviderGuard, parseRetryAfter } from './providerGuard.js';
 import {
   createBreezeClient,
   breezeCodeFor,
@@ -112,7 +113,7 @@ export function createApp({
   now = Date.now,
   retryDelayMs = 1000,
   rateLimit = { windowMs: 60_000, max: Number(process.env.RATE_LIMIT_PER_MIN) || 120, loopbackMax: Number(process.env.RATE_LIMIT_LOCAL_PER_MIN) || 1200 },
-  upstreamConcurrency = Number(process.env.UPSTREAM_CONCURRENCY) || 6,
+  upstreamConcurrency = Number(process.env.UPSTREAM_CONCURRENCY) || 4,
   // Exchange holiday calendar source. Defaults to NSE's own list when the real fetch is in use and
   // is off when a custom fetchFn is injected (tests, fake feeds); then only weekends are detected.
   holidayFetch = rawFetch === globalThis.fetch ? globalThis.fetch : null,
@@ -136,10 +137,25 @@ export function createApp({
       return 'other';
     }
   };
-  const fetchFn = (url, init) => {
+  // A provider that cannot be reached, or that answers 429, is paused briefly: requests fail at once (and fall back to
+  // cached data) instead of each waiting out its own timeout, and the provider is not hammered while it struggles.
+  const guard = createProviderGuard({ now });
+  const fetchFn = async (url, init) => {
     const provider = providerOf(url);
+    guard.check(provider);
     if (!limiters.has(provider)) limiters.set(provider, createConcurrencyLimiter(upstreamConcurrency));
-    return limiters.get(provider)(() => rawFetch(url, init));
+    return limiters.get(provider)(async () => {
+      guard.check(provider); // it may have been paused while this request was waiting in the queue
+      try {
+        const response = await rawFetch(url, init);
+        if (response.status === 429) guard.rateLimited(provider, parseRetryAfter(response.headers?.get?.('retry-after')));
+        else guard.success(provider);
+        return response;
+      } catch (error) {
+        guard.failure(provider);
+        throw error;
+      }
+    });
   };
   const inFlight = new Map(); // cache key -> pending provider load, so concurrent identical requests share one call
   const cache = createCache(now);
@@ -166,7 +182,7 @@ export function createApp({
         return await response.json();
       } catch (error) {
         const clientError = error.status >= 400 && error.status < 500;
-        if (i === retries || clientError) throw error;
+        if (i === retries || clientError || error.paused) throw error;
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (i + 1)));
       }
     }
@@ -1073,6 +1089,7 @@ export function createApp({
       stream: streamHub.health(),
       instruments: { loaded: Boolean(master), count: master ? master.bySymbol.size : 0, loadedAt: masterLoadedAt ? new Date(masterLoadedAt).toISOString() : null },
       yahoo: { sessionReady: Boolean(yahooAuth) },
+      providersPaused: guard.paused(),
       cacheEntries: cache.size(),
       liveClients: [...liveSubscribers.values()].reduce((s, n) => s + n, 0),
       recentErrors: [...recentErrors].reverse(),

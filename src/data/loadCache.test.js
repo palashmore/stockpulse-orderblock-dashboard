@@ -94,4 +94,21 @@ describe('createLoadCache', () => {
     expect(cache.has('A')).toBe(false);
     expect(cache.has('C')).toBe(true);
   });
+
+  it('lets each call set its own lifetime, and forgets a single key', async () => {
+    const { cache, advance } = make();
+    let calls = 0;
+    const loader = async () => ++calls;
+    await cache.get('short', loader, undefined, 50);
+    await cache.get('long', loader);
+    advance(60);
+    await cache.get('short', loader, undefined, 50);
+    await cache.get('long', loader);
+    expect(calls).toBe(3); // only 'short' expired
+    cache.clear('long');
+    await cache.get('long', loader);
+    expect(calls).toBe(4);
+    expect(cache.size()).toBe(2);
+  });
 });
+

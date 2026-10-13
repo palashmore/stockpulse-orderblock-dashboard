@@ -203,7 +203,7 @@ export default function StrategyWorkspace({ mode, selectedStock, demoMode }) {
           {analysis.length === 0 ? (
             <p className="px-4 py-8 text-xs text-gray-500">{loading ? 'Loading candles…' : 'No candles available for this stock and timeframe.'}</p>
           ) : (
-            <TradingChart candleData={analysis} indicators={indicators} signals={signals} trades={result.trades} selectedId={selected?.id ?? null} onSelectSignal={setSelectedId} intraday={mode === 'intraday'} />
+            <TradingChart candleData={analysis} indicators={indicators} signals={signals} trades={result.trades} selectedId={selected?.id ?? null} onSelectSignal={setSelectedId} intraday={mode === 'intraday'} resetKey={`${symbol}|${frame.interval}|${frame.range}`} />
           )}
         </div>
       </div>

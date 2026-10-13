@@ -89,7 +89,7 @@ export default function NormalAnalysis({ selectedStock, nifty, demoMode }) {
       {a && (
         <>
           <div className="rounded-md overflow-hidden flex flex-col" style={{ border: '1px solid rgba(30, 45, 61, 0.5)', height: 360 }}>
-            <TradingChart candleData={candles} orderBlocks={orderBlocks} indicators={{ sma20: true, sma50: true, ema200: true, vwap: false, rsi: true }} />
+            <TradingChart candleData={candles} orderBlocks={orderBlocks} indicators={{ sma20: true, sma50: true, ema200: true, vwap: false, rsi: true }} resetKey={symbol} />
           </div>
 
           <Card title="What the history shows">
