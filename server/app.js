@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
@@ -126,6 +127,7 @@ export function createApp({
   alertStore = createMemoryAlertStore(), // server/index.js passes a file-backed store
   alertNotifier = null,
   alertIntervalMs = 60_000, // how often the server checks alerts once alerts.start() is called
+  hostedSessions = process.env.HOSTED_SESSIONS === '1', // serverless hosting: the browser holds the broker session and sends it with each request
   trustProxy = false, // behind a platform proxy (Vercel): use the visitor's address, not the proxy's, for rate limiting
   staticDir = null, // folder with the built app (index.html); server/index.js passes dist/ in production
   ipoDetailWaitMs = Number(process.env.IPO_DETAIL_WAIT_MS) || 12_000, // how long the IPO list waits for NSE's per-issue pages
@@ -845,17 +847,33 @@ export function createApp({
     ? next()
     : res.status(403).json({ error: 'Broker sign-in is only available from the machine running the server' }));
 
-  app.get('/api/auth/status', localOnly, (req, res) => {
+  // Account routes. On your own machine they answer only there. When hosted (hostedSessions) the server keeps no session between
+  // requests: the browser sends the broker session token it received at sign-in in the X-Breeze-Session header, and each request
+  // gets its own client. Without a valid token a request is simply "not signed in"; the app secret never leaves the server.
+  const SESSION_TOKEN = /^[A-Za-z0-9+/=_-]{8,600}$/;
+  const accountAccess = hostedSessions
+    ? (req, res, next) => {
+      const header = req.headers['x-breeze-session'];
+      const token = typeof header === 'string' && SESSION_TOKEN.test(header) ? header : null;
+      req.breeze = breeze.withSession(token);
+      req.scope = token ? `${createHash('sha256').update(token).digest('hex').slice(0, 16)}|` : 'none|';
+      next();
+    }
+    : localOnly;
+  const B = (req) => req.breeze ?? breeze;
+
+  app.get('/api/auth/status', accountAccess, (req, res) => {
     res.json({
       broker: 'ICICI Direct Breeze',
+      hosted: hostedSessions,
       configured: breeze.configured,
-      connected: breeze.isConnected(),
-      connectedAt: breeze.connectedAt() ? new Date(breeze.connectedAt()).toISOString() : null,
+      connected: B(req).isConnected(),
+      connectedAt: B(req).connectedAt() ? new Date(B(req).connectedAt()).toISOString() : null,
       loginUrl: breeze.configured ? loginUrl(process.env.BREEZE_API_KEY) : null,
     });
   });
 
-  app.post('/api/auth/breeze/session', localOnly, async (req, res) => {
+  app.post('/api/auth/breeze/session', accountAccess, async (req, res) => {
     const raw = String(req.body?.session ?? '');
     const session = extractSessionToken(raw);
     if (!session) {
@@ -867,6 +885,11 @@ export function createApp({
       });
     }
     try {
+      if (hostedSessions) {
+        const scoped = breeze.withSession(null);
+        await scoped.connect(session);
+        return res.json({ connected: true, sessionToken: scoped.exportSession() });
+      }
       await breeze.connect(session);
       startStream();
       res.json({ connected: true });
@@ -880,15 +903,15 @@ export function createApp({
   let portfolioCache = null;
 
 
-  app.get('/api/portfolio', localOnly, async (req, res) => {
+  app.get('/api/portfolio', accountAccess, async (req, res) => {
     res.set('Cache-Control', 'no-store');
-    if (!breeze.isConnected()) return res.status(409).json({ error: 'Sign in to ICICI Direct in Settings first' });
-    if (portfolioCache && now() - portfolioCache.at < MINUTE) return res.json(portfolioCache.body);
+    if (!B(req).isConnected()) return res.status(409).json({ error: 'Sign in to ICICI Direct in Settings first' });
+    if (!hostedSessions && portfolioCache && now() - portfolioCache.at < MINUTE) return res.json(portfolioCache.body);
 
     try {
       const [rawHoldings, rawFunds, masterData] = await Promise.all([
-        breeze.getDematHoldings(),
-        breeze.getFunds().catch(() => null),
+        B(req).getDematHoldings(),
+        B(req).getFunds().catch(() => null),
         getMaster(),
       ]);
 
@@ -899,7 +922,7 @@ export function createApp({
       const priceOne = async (code) => {
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
-            const q = await breeze.getQuote(code, code);
+            const q = await B(req).getQuote(code, code);
             quotes.set(code, { price: q.price, previousClose: q.previousClose });
             return;
           } catch (error) {
@@ -927,7 +950,7 @@ export function createApp({
         provider: 'ICICI Direct Breeze',
         notes: ['Holdings have no purchase price in this API, so profit and loss versus cost is not shown.'],
       };
-      portfolioCache = { at: nowMs, body };
+      if (!hostedSessions) portfolioCache = { at: nowMs, body };
       res.json(body);
     } catch (error) {
       console.error('Portfolio error:', error.message);
@@ -939,7 +962,8 @@ export function createApp({
   // Loopback only, never cached by the browser, and held on the server for 30 seconds. This app has no
   // endpoint that places, changes or cancels an order.
   const bookCache = new Map();
-  async function book(key, loader) {
+  async function book(rawKey, loader, req = null) {
+    const key = `${req?.scope ?? ''}${rawKey}`; // each hosted visitor has their own entries
     const hit = bookCache.get(key);
     if (hit && now() - hit.at < 30000) return hit.body;
     let rows;
@@ -956,7 +980,7 @@ export function createApp({
   const exchangesFor = (q) => (q === 'NFO' ? ['NFO'] : q === 'NSE' ? ['NSE'] : ['NSE', 'NFO']);
   const brokerGuard = (req, res, next) => {
     res.set('Cache-Control', 'no-store');
-    if (!breeze.isConnected()) return res.status(409).json({ error: 'Sign in to ICICI Direct in Settings first' });
+    if (!B(req).isConnected()) return res.status(409).json({ error: 'Sign in to ICICI Direct in Settings first' });
     next();
   };
   const brokerFail = (res, error) => {
@@ -965,20 +989,20 @@ export function createApp({
     res.status(/session expired/i.test(error.message) ? 409 : 502).json({ error: error.message });
   };
 
-  app.get('/api/broker/positions', localOnly, brokerGuard, async (req, res) => {
+  app.get('/api/broker/positions', accountAccess, brokerGuard, async (req, res) => {
     try {
-      const body = await book('positions', () => breeze.getPositions());
+      const body = await book('positions', () => B(req).getPositions(), req);
       res.json({ positions: body.rows.map(mapPosition), fetchedAt: body.fetchedAt, provider: 'ICICI Direct Breeze' });
     } catch (error) { brokerFail(res, error); }
   });
 
   // Funds and margin as ICICI reports them. Margin is per exchange; a missing piece is reported as such
   // rather than failing the whole page.
-  app.get('/api/broker/funds', localOnly, brokerGuard, async (req, res) => {
+  app.get('/api/broker/funds', accountAccess, brokerGuard, async (req, res) => {
     try {
       const optional = async (key, loader) => {
         try {
-          return { ok: true, value: (await book(key, async () => { const v = await loader(); return v ? [v] : []; })).rows[0] ?? null };
+          return { ok: true, value: (await book(key, async () => { const v = await loader(); return v ? [v] : []; }, req)).rows[0] ?? null };
         } catch (error) {
           if (/session expired/i.test(error.message)) throw error;
           recordError('broker-funds', error.message);
@@ -986,9 +1010,9 @@ export function createApp({
         }
       };
       const [funds, nse, nfo] = await Promise.all([
-        optional('funds', () => breeze.getFunds()),
-        optional('margin|NSE', () => breeze.getMargin('NSE')),
-        optional('margin|NFO', () => breeze.getMargin('NFO')),
+        optional('funds', () => B(req).getFunds()),
+        optional('margin|NSE', () => B(req).getMargin('NSE')),
+        optional('margin|NFO', () => B(req).getMargin('NFO')),
       ]);
       if (!funds.ok && !nse.ok && !nfo.ok) return brokerFail(res, new Error(funds.error));
       res.json({
@@ -1002,32 +1026,32 @@ export function createApp({
     } catch (error) { brokerFail(res, error); }
   });
 
-  app.get('/api/broker/orders', localOnly, brokerGuard, async (req, res) => {
+  app.get('/api/broker/orders', accountAccess, brokerGuard, async (req, res) => {
     const w = parseWindow(req.query.from, req.query.to, istDateKey(now()));
     if (w.error) return res.status(400).json({ error: w.error });
     try {
-      const parts = await Promise.all(exchangesFor(req.query.exchange).map((ex) => book(`orders|${ex}|${w.from}|${w.to}`, () => breeze.getOrders(ex, w.from, w.to))));
+      const parts = await Promise.all(exchangesFor(req.query.exchange).map((ex) => book(`orders|${ex}|${w.from}|${w.to}`, () => B(req).getOrders(ex, w.from, w.to), req)));
       const orders = parts.flatMap((p) => p.rows).map(mapOrder).sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
       res.json({ orders, summary: orderSummary(orders), window: w, fetchedAt: parts[0].fetchedAt, provider: 'ICICI Direct Breeze' });
     } catch (error) { brokerFail(res, error); }
   });
 
-  app.get('/api/broker/trades', localOnly, brokerGuard, async (req, res) => {
+  app.get('/api/broker/trades', accountAccess, brokerGuard, async (req, res) => {
     const w = parseWindow(req.query.from, req.query.to, istDateKey(now()));
     if (w.error) return res.status(400).json({ error: w.error });
     try {
-      const parts = await Promise.all(exchangesFor(req.query.exchange).map((ex) => book(`trades|${ex}|${w.from}|${w.to}`, () => breeze.getTrades(ex, w.from, w.to))));
+      const parts = await Promise.all(exchangesFor(req.query.exchange).map((ex) => book(`trades|${ex}|${w.from}|${w.to}`, () => B(req).getTrades(ex, w.from, w.to), req)));
       const trades = parts.flatMap((p) => p.rows).map(mapTrade);
       res.json({ trades, realised: realisedRoundTrips(trades), window: w, fetchedAt: parts[0].fetchedAt, provider: 'ICICI Direct Breeze' });
     } catch (error) { brokerFail(res, error); }
   });
 
-  app.get('/api/broker/trades/detail', localOnly, brokerGuard, async (req, res) => {
+  app.get('/api/broker/trades/detail', accountAccess, brokerGuard, async (req, res) => {
     const orderId = String(req.query.orderId || '');
     const exchange = req.query.exchange === 'NFO' ? 'NFO' : 'NSE';
     if (!/^[A-Za-z0-9-]{4,40}$/.test(orderId)) return res.status(400).json({ error: 'Invalid order id' });
     try {
-      const body = await book(`detail|${exchange}|${orderId}`, () => breeze.getTradeDetail(exchange, orderId));
+      const body = await book(`detail|${exchange}|${orderId}`, () => B(req).getTradeDetail(exchange, orderId), req);
       res.json({ fills: body.rows.map(mapTradeDetail), fetchedAt: body.fetchedAt });
     } catch (error) { brokerFail(res, error); }
   });
@@ -1067,8 +1091,8 @@ export function createApp({
     res.json({ depths: symbols.map(depthFor) });
   });
 
-  app.post('/api/auth/breeze/disconnect', localOnly, (req, res) => {
-    breeze.disconnect();
+  app.post('/api/auth/breeze/disconnect', accountAccess, (req, res) => {
+    if (!hostedSessions) breeze.disconnect(); // hosted: the browser simply forgets its token
     stopStream();
     bookCache.clear();
     portfolioCache = null;

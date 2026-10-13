@@ -202,9 +202,9 @@ export function describeNetworkError(error) {
   return 'The request to ICICI Direct timed out. Check the internet connection, then try again';
 }
 
-export function createBreezeClient({ appKey, secret, request = httpsRequest, now = Date.now, budget = createBudget({ now }), retryDelaysMs = [500, 1500, 3000] } = {}) {
-  let sessionToken = null;
-  let connectedAt = null;
+export function createBreezeClient({ appKey, secret, request = httpsRequest, now = Date.now, budget = createBudget({ now }), retryDelaysMs = [500, 1500, 3000], session = null } = {}) {
+  let sessionToken = session;
+  let connectedAt = session ? now() : null;
   let rejectedInARow = 0;
 
   const configured = Boolean(appKey && secret);
@@ -266,6 +266,13 @@ export function createBreezeClient({ appKey, secret, request = httpsRequest, now
 
   return {
     configured,
+    /**
+     * A client with the same credentials and request budget but its own session (or none). Used when the server is hosted
+     * without memory between requests: the browser holds the session token and sends it with each request.
+     */
+    withSession: (token) => createBreezeClient({ appKey, secret, request, now, budget, retryDelaysMs, session: token || null }),
+    /** The session token obtained by connect(), for handing to the browser in the hosted setup. */
+    exportSession: () => sessionToken,
     isConnected: () => sessionToken !== null,
     budget: () => budget.stats(),
 

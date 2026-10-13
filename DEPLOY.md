@@ -72,6 +72,23 @@ data (delayed, and labelled that way).
 2. Click **Deploy**. No environment variables are required.
 3. Open the address Vercel gives you and check `/api/health`.
 
+### Optional: sign in to ICICI Direct on the Vercel copy
+
+Needed only for Portfolio, Orders & Positions and funds. Everything else works without it.
+
+1. In Vercel open your project > **Settings > Environment Variables** and add, for the **Production** environment:
+   * `BREEZE_API_KEY` = your Breeze app key
+   * `BREEZE_API_SECRET` = your Breeze secret (mark it **Sensitive** if offered)
+2. **Deployments** > the latest one > **...** > **Redeploy** (variables apply only to new deployments).
+3. Open the site > **Settings**: the ICICI Direct box now shows the sign-in steps and the paste field. Open the sign-in link, log
+   in, copy the address that ends in `?apisession=...`, paste it and click Connect.
+4. The sign-in lives in that browser tab only (closing the tab signs you out; ICICI's session also ends overnight). The secret
+   never leaves Vercel.
+
+**ICICI's static-IP rule is the catch.** Your Breeze app's *Primary IP* must be the address ICICI sees the request coming from, and
+Vercel functions use changing addresses (a fixed one needs a paid Vercel plan). If ICICI refuses the calls the Portfolio screen
+shows its error text. The reliable alternative is the local copy, or a server with a static IP (options 1 to 3).
+
 What a serverless host cannot do, by nature (use option 1, 2 or 3 for these):
 * **Server alerts and push notifications**: there is no always-on timer. The Alerts screen falls back to browser alerts
   that run while the tab is open.

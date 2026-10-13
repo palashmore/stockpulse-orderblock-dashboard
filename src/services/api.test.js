@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { resolveApiBase, retryDelayMs, fetchQuotes, fetchHistory, fetchIndexLevels, clearApiCache } from './api';
+import { resolveApiBase, retryDelayMs, fetchQuotes, fetchHistory, fetchIndexLevels, clearApiCache, getBrokerSession, setBrokerSession, submitBrokerSession, fetchPortfolio, SESSION_KEY } from './api';
 
 describe('resolveApiBase', () => {
   it('uses port 3001 on the host that served the page, so a phone on the same network reaches it', () => {
@@ -135,6 +135,47 @@ describe('stored and shared responses', () => {
     const fetchMock = vi.fn().mockImplementation(async () => reply({ candles: [], dataStatus: 'UNAVAILABLE' }));
     vi.stubGlobal('fetch', fetchMock);
     expect(await fetchHistory('ZZZ', '6mo', '1d')).toBeNull();
+  });
+});
+
+describe('browser-held broker session (hosted copy)', () => {
+  const store = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v), removeItem: (k) => m.delete(k) }; };
+  const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: {} });
+  afterEach(() => { vi.unstubAllGlobals(); setBrokerSession(null); });
+
+  it('stores and clears the token, and survives blocked storage', () => {
+    const s = store();
+    setBrokerSession('abc12345', s);
+    expect(getBrokerSession(s)).toBe('abc12345');
+    expect(s.getItem(SESSION_KEY)).toBe('abc12345');
+    setBrokerSession(null, s);
+    expect(getBrokerSession(s)).toBeNull();
+    const blocked = { getItem: () => { throw new Error('no'); }, setItem: () => { throw new Error('no'); }, removeItem: () => { throw new Error('no'); } };
+    expect(getBrokerSession(blocked)).toBeNull();
+    expect(() => setBrokerSession('x', blocked)).not.toThrow();
+  });
+
+  it('keeps the token handed over at sign-in out of what the screen receives, and sends it on account requests', async () => {
+    const mem = store();
+    vi.stubGlobal('window', { sessionStorage: mem });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(reply({ connected: true, sessionToken: 'TOKEN1234' }))
+      .mockResolvedValueOnce(reply({ holdings: [], totals: {} }));
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await submitBrokerSession('https://127.0.0.1/?apisession=1');
+    expect(result).toEqual({ connected: true });
+    expect(mem.getItem(SESSION_KEY)).toBe('TOKEN1234');
+    await fetchPortfolio();
+    expect(fetchMock.mock.calls[1][1].headers['X-Breeze-Session']).toBe('TOKEN1234');
+  });
+
+  it('forgets a token the server says has expired', async () => {
+    const mem = store();
+    vi.stubGlobal('window', { sessionStorage: mem });
+    setBrokerSession('OLDTOKEN1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ error: 'Breeze session expired; sign in again' }, 409)));
+    expect((await fetchPortfolio()).error).toMatch(/expired/);
+    expect(mem.getItem(SESSION_KEY)).toBeNull();
   });
 });
 

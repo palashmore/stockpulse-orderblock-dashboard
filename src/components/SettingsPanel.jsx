@@ -85,13 +85,14 @@ export default function SettingsPanel({ demoMode, headlineStatus, onConnectionCh
         {auth?.remote && (
           <div className="text-xs text-gray-400 space-y-2">
             <p>Broker sign-in is not available on this address. For safety it works only when StockPulse runs on your own computer (<code className="text-gray-300">npm start</code>, then open <code className="text-gray-300">http://localhost:3001</code>).</p>
-            <p>This hosted copy needs no sign-in: every screen already uses delayed Yahoo Finance data, labelled as such. Portfolio, order books and server alerts need the local copy.</p>
+            <p>Without signing in, every screen uses delayed Yahoo Finance data, labelled as such. Portfolio, order books and server alerts need the local copy.</p>
           </div>
         )}
 
         {auth && !auth.remote && !auth.configured && (
           <div className="text-xs text-gray-400 space-y-2">
             <p>No API key is set up yet. To use your ICICI Direct account as the data source:</p>
+            {auth.hosted && <p style={{ color: '#ffd600' }}>This is a hosted copy: add <code className="text-gray-300">BREEZE_API_KEY</code> and <code className="text-gray-300">BREEZE_API_SECRET</code> in your hosting dashboard (Vercel: Project, Settings, Environment Variables), then redeploy. See DEPLOY.md.</p>}
             <ol className="list-decimal ml-5 space-y-1">
               <li>Register an app on the Breeze API portal (api.icicidirect.com) with redirect URL <code className="text-gray-300">https://127.0.0.1</code>.</li>
               <li>Copy <code className="text-gray-300">.env.example</code> to <code className="text-gray-300">.env</code> and fill in <code className="text-gray-300">BREEZE_API_KEY</code> and <code className="text-gray-300">BREEZE_API_SECRET</code>.</li>
@@ -102,6 +103,7 @@ export default function SettingsPanel({ demoMode, headlineStatus, onConnectionCh
 
         {auth && !auth.remote && auth.configured && !auth.connected && (
           <div className="text-xs text-gray-400 space-y-3">
+            {auth.hosted && <p style={{ color: '#ffd600' }}>Hosted copy: your sign-in is kept in this browser tab only (it ends when you close the tab or ICICI&apos;s session expires overnight), and the app secret stays on the server. ICICI only accepts requests from the static IP registered on your app, so portfolio calls can be refused from a host whose address changes.</p>}
             <p>Signing in is optional. Without it every screen works with delayed Yahoo Finance data, labelled as such. Signing in adds ICICI Direct quotes for supported stocks, your portfolio and order books. Sign in once each day; the session expires overnight.</p>
             <ol className="list-decimal ml-5 space-y-1">
               <li>

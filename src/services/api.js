@@ -132,7 +132,7 @@ export async function fetchMarketStatus() {
 // (a hosted copy), or null when the server cannot be reached.
 export async function fetchAuthStatus() {
   try {
-    const response = await fetch(`${API_BASE}/auth/status`, { cache: 'no-store', signal: AbortSignal.timeout(10000) });
+    const response = await fetch(`${API_BASE}/auth/status`, { cache: 'no-store', headers: accountHeaders(), signal: AbortSignal.timeout(10000) });
     if (response.status === 403) return { remote: true };
     return response.ok ? await response.json() : null;
   } catch {
@@ -141,28 +141,54 @@ export async function fetchAuthStatus() {
 }
 
 // Resolves { connected } on success or { connected: false, error } with the server's reason
+// On a hosted copy the server keeps no broker session: it hands the session token to this browser tab, which sends it with each
+// account request. It lives in sessionStorage (cleared when the tab closes, and never sent anywhere but this app's own API).
+export const SESSION_KEY = 'stockpulse.breeze.session';
+export function getBrokerSession(storage = typeof window !== 'undefined' ? window.sessionStorage : null) {
+  try { return storage?.getItem(SESSION_KEY) || null; } catch { return null; }
+}
+export function setBrokerSession(token, storage = typeof window !== 'undefined' ? window.sessionStorage : null) {
+  try {
+    if (token) storage?.setItem(SESSION_KEY, token);
+    else storage?.removeItem(SESSION_KEY);
+  } catch { /* storage blocked: sign-in lasts until reload */ }
+}
+const accountHeaders = (extra = {}) => {
+  const token = getBrokerSession();
+  return token ? { ...extra, 'X-Breeze-Session': token } : extra;
+};
+// A refusal that means the stored token is no longer good: forget it so the sign-in box comes back
+const dropExpiredSession = (message) => { if (/session expired|sign in again/i.test(String(message ?? ''))) setBrokerSession(null); };
+
 export async function submitBrokerSession(session) {
   try {
     const response = await fetch(`${API_BASE}/auth/breeze/session`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: accountHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ session }),
     });
-    return await response.json();
+    const result = await response.json();
+    if (result.sessionToken) {
+      setBrokerSession(result.sessionToken);
+      delete result.sessionToken;
+    }
+    return result;
   } catch {
     return { connected: false, error: 'Could not reach the server' };
   }
 }
 
 export async function disconnectBroker() {
+  setBrokerSession(null);
   return await apiFetch('/auth/breeze/disconnect', { method: 'POST' });
 }
 
 // Read-only ICICI Direct holdings (loopback-only on the server). Resolves the portfolio or { error }.
 export async function fetchPortfolio() {
   try {
-    const response = await fetch(`${API_BASE}/portfolio`, { cache: 'no-store' });
+    const response = await fetch(`${API_BASE}/portfolio`, { cache: 'no-store', headers: accountHeaders() });
     const body = await response.json();
+    if (!response.ok) dropExpiredSession(body.error);
     return response.ok ? body : { error: body.error || `Request failed (${response.status})` };
   } catch {
     return { error: 'Could not reach the server' };
@@ -177,8 +203,9 @@ export async function fetchDiagnostics() {
 // Read-only broker books (loopback-only on the server). Resolves the response body, or { error }.
 export async function fetchBroker(path) {
   try {
-    const response = await fetch(`${API_BASE}/broker${path}`, { cache: 'no-store' });
+    const response = await fetch(`${API_BASE}/broker${path}`, { cache: 'no-store', headers: accountHeaders() });
     const body = await response.json();
+    if (!response.ok) dropExpiredSession(body.error);
     return response.ok ? body : { error: body.error || `Request failed (${response.status})` };
   } catch {
     return { error: 'Could not reach the server' };

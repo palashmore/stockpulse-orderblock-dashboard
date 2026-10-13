@@ -3,7 +3,7 @@
 // Not available here by nature of serverless: the alert timer, the live broker stream and any saved broker session.
 import { createApp } from '../server/app.js';
 
-const { app } = createApp({ trustProxy: true, alertIntervalMs: 0 });
+const { app } = createApp({ trustProxy: true, hostedSessions: true, alertIntervalMs: 0 });
 
 export default function handler(req, res) {
   return app(req, res);
