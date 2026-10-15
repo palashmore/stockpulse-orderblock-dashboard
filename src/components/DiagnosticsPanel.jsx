@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useRefresh } from '../hooks/useRefresh';
 import { Activity, Server, Radio, Database, ShieldCheck, AlertCircle, RefreshCw } from 'lucide-react';
 import { fetchDiagnostics } from '../services/api';
 
@@ -42,19 +43,12 @@ const uptime = (s) => (s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3
 export default function DiagnosticsPanel() {
   const [data, setData] = useState(undefined);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = () =>
-      fetchDiagnostics().then((d) => {
-        if (!cancelled) setData(d);
-      });
-    load();
-    const timer = setInterval(load, REFRESH_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, []);
+  // Diagnostics poll faster than the market feeds (operator view), still on the shared scheduler
+  useRefresh('diagnostics', async () => {
+    const d = await fetchDiagnostics();
+    setData(d);
+    return d ?? { unreachable: true };
+  }, true, REFRESH_MS);
 
   if (data === undefined) {
     return (

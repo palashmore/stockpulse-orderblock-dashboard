@@ -133,7 +133,7 @@ export function setupWebSocketServer({
         if (action === 'unsubscribe') {
           if (msg.symbol) unsubscribe(ws, msg.symbol);
         }
-      } catch (err) {
+      } catch {
         ws.send(JSON.stringify({ type: 'error', message: 'Invalid WebSocket payload' }));
       }
     });

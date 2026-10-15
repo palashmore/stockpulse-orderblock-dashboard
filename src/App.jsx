@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useRefresh } from './hooks/useRefresh';
 import Sidebar from './components/Sidebar';
 import SearchBar from './components/SearchBar';
 import StockChart, { TimeframeBar } from './components/StockChart';
@@ -117,13 +118,11 @@ export default function App() {
   // Keep the exchange state current: re-check every 30 s so the app moves between open and closed
   // modes by itself, and reload the data whenever the market opens or closes.
   const wasOpen = useRef(null);
-  useEffect(() => {
-    if (demoMode || !backendUp) return;
-    const poll = () => fetchMarketStatus().then((m) => { if (m) setMarketStatus(m); });
-    poll();
-    const interval = setInterval(poll, 30000);
-    return () => clearInterval(interval);
-  }, [demoMode, backendUp]);
+  useRefresh('market-status', async () => {
+    const m = await fetchMarketStatus();
+    if (m) setMarketStatus(m);
+    return m;
+  }, !demoMode && backendUp);
 
   // Check backend availability on mount
   useEffect(() => {
@@ -149,14 +148,11 @@ export default function App() {
     if (quoteData) setRealQuote(quoteData);
     if (optData) setOptionsData(optData);
     setRefreshFailed(!historyData && !quoteData);
-    setLastUpdate(new Date());
+    if (historyData || quoteData) setLastUpdate(new Date());
     setAttempted(true);
     setLoading(false);
-  }, [demoMode, backendUp, timeframe, optionsEnabled]);
-
-  useEffect(() => {
-    loadRealData(selectedStock.symbol);
-  }, [selectedStock.symbol, loadRealData]);
+    return Boolean(historyData || quoteData);
+  },[demoMode, backendUp, timeframe, optionsEnabled]);
 
   useEffect(() => {
     if (!marketStatus) return;
@@ -167,15 +163,14 @@ export default function App() {
     wasOpen.current = marketStatus.isOpen;
   }, [marketStatus, loadRealData, selectedStock.symbol, nifty]);
 
-  // Refresh every 60 seconds; re-check the backend if it was unreachable
-  useEffect(() => {
-    if (demoMode) return;
-    const interval = setInterval(() => {
-      if (backendUp) loadRealData(selectedStock.symbol);
-      else checkBackend();
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [demoMode, backendUp, selectedStock.symbol, loadRealData, checkBackend]);
+  // Refresh on the shared 60 s scheduler (same symbol/timeframe, in place); re-check the backend
+  // on the same schedule if it was unreachable.
+  useRefresh(
+    `stock:${selectedStock.symbol}|${timeframe}`,
+    async () => ((await loadRealData(selectedStock.symbol)) ? { ok: true } : null),
+    !demoMode && backendUp,
+  );
+  useRefresh('backend-health', async () => ((await checkBackend()) ? { ok: true } : null), !demoMode && !backendUp);
 
   // Real candles, or generated ones only in explicit demo mode. Never mixed.
   const candleData = useMemo(() => {

@@ -124,7 +124,7 @@ export function createExecutionCircuitBreaker({
     return { ok: true, fingerprint: key };
   }
 
-  function recordOrderResult({ success, error = null, pnl = 0 }) {
+  function recordOrderResult({ success, error: _error = null, pnl = 0 }) {
     if (success) {
       consecutiveErrors = 0;
       if (typeof pnl === 'number' && pnl < 0) {

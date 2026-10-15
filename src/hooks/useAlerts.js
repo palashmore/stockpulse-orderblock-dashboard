@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useRefresh } from './useRefresh';
 import {
   createAlert,
   evaluateAlerts,
@@ -117,13 +118,11 @@ function useServerAlerts() {
     const result = await fetchServerAlerts();
     if (result.ok) apply(result.body);
     else setView((v) => (v.mode === 'server' ? { ...v, offline: true } : { ...v, mode: 'local' }));
+    return result.ok;
   }, [apply]);
 
-  useEffect(() => {
-    const first = setTimeout(refresh, 0);
-    const timer = setInterval(() => { if (!document.hidden) refresh(); }, SERVER_POLL_MS);
-    return () => { clearTimeout(first); clearInterval(timer); };
-  }, [refresh]);
+  // Server alerts are polled on the shared scheduler (it pauses while the tab is hidden)
+  useRefresh('server-alerts', async () => ((await refresh()) ? { ok: true } : null), true, SERVER_POLL_MS);
 
   const act = useCallback(async (promise) => {
     const result = await promise;

@@ -180,6 +180,8 @@ export function createApp({
   app.use(createRateLimiter({ ...rateLimit, now }));
   app.use(express.json());
 
+  // A provider that is not answering used to cost 3 attempts x 10 s (about 30 s) per request. A timed-out
+  // attempt is now final (the provider guard counts it), and retries only cover quick transient failures.
   async function fetchJson(url, headers, retries = 2) {
     for (let i = 0; i <= retries; i++) {
       try {
@@ -192,7 +194,8 @@ export function createApp({
         return await response.json();
       } catch (error) {
         const clientError = error.status >= 400 && error.status < 500;
-        if (i === retries || clientError || error.paused) throw error;
+        const timedOut = error.name === 'TimeoutError' || error.name === 'AbortError';
+        if (i === retries || clientError || error.paused || timedOut) throw error;
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (i + 1)));
       }
     }

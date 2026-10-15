@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useRefresh } from '../hooks/useRefresh';
 import { RefreshCw, TrendingUp, TrendingDown, Minus, ShieldCheck, Activity } from 'lucide-react';
 import { fetchHistory } from '../services/api';
 import { MTF_FRAMES, timeframeTrend, alignment } from '../data/mtf';
@@ -13,7 +14,6 @@ const TREND = {
   mixed: { label: 'MIXED', color: '#ffd600', icon: Minus },
   unknown: { label: 'N/A', color: '#64748b', icon: Minus },
 };
-const REFRESH_MS = 120000;
 
 export default function MultiTimeframePanel({ symbol, demoMode }) {
   const [frames, setFrames] = useState([]);
@@ -31,17 +31,14 @@ export default function MultiTimeframePanel({ symbol, demoMode }) {
         return { ...f, reading: timeframeTrend(usable), status: h.dataStatus, provider: h.provider };
       })
     );
+    setLoading(false);
+    if (results.every((f) => f.status === 'UNAVAILABLE')) return false; // keep the last good reading
     setFrames(results);
     setLoadedAt(Date.now());
-    setLoading(false);
+    return true;
   }, [symbol]);
 
-  useEffect(() => {
-    if (demoMode) return undefined;
-    load();
-    const timer = setInterval(load, REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [load, demoMode]);
+  useRefresh(`mtf:${symbol}`, async () => ((await load()) ? { ok: true } : null), !demoMode);
 
   if (demoMode) {
     return (

@@ -69,6 +69,24 @@ function MovesScanner({
 
   const result = useMemo(() => runScan(quotes, criteria, sort.key, sort.dir), [quotes, criteria, sort]);
 
+  // Stats for the active scan
+  const stats = useMemo(() => {
+    let bullish = 0;
+    let bearish = 0;
+    let surges = 0;
+    let gaps = 0;
+    for (const q of quotes) {
+      if ((q.changePct ?? 0) > 0.5) bullish++;
+      if ((q.changePct ?? 0) < -0.5) bearish++;
+      const rel = q.avgVolume > 0 ? (q.volume ?? 0) / q.avgVolume : 0;
+      if (rel >= 1.5) surges++;
+      const prev = q.previousClose ?? q.price;
+      const gap = prev > 0 && q.open ? ((q.open - prev) / prev) * 100 : 0;
+      if (Math.abs(gap) >= 0.75) gaps++;
+    }
+    return { bullish, bearish, surges, gaps };
+  }, [quotes]);
+
   if (quotes.length === 0) {
     return <UnavailableState status={failed ? 'UNAVAILABLE' : null} loading={!loaded} onRetry={retry} />;
   }
@@ -91,24 +109,6 @@ function MovesScanner({
   const open = (m) => onSelectStock({ symbol: m.symbol, name: m.name, sector: sectors[m.symbol] || '' });
 
   const active = Object.entries(criteria).filter(([k, v]) => v !== DEFAULT_CRITERIA[k]).length;
-
-  // Stats for the active scan
-  const stats = useMemo(() => {
-    let bullish = 0;
-    let bearish = 0;
-    let surges = 0;
-    let gaps = 0;
-    for (const q of quotes) {
-      if ((q.changePct ?? 0) > 0.5) bullish++;
-      if ((q.changePct ?? 0) < -0.5) bearish++;
-      const rel = q.avgVolume > 0 ? (q.volume ?? 0) / q.avgVolume : 0;
-      if (rel >= 1.5) surges++;
-      const prev = q.previousClose ?? q.price;
-      const gap = prev > 0 && q.open ? ((q.open - prev) / prev) * 100 : 0;
-      if (Math.abs(gap) >= 0.75) gaps++;
-    }
-    return { bullish, bearish, surges, gaps };
-  }, [quotes]);
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto flex flex-col" style={{ backgroundColor: '#0a0e17' }}>

@@ -9,6 +9,7 @@ import { dropFormingBar, dayRisk, entryGate, positionSize } from '../data/strate
 import { loadStrategyConfig, saveStrategyConfig, loadSlippage, SLIPPAGE_KEY } from '../data/strategyStore';
 import { STATUS_META } from '../data/dataStatus';
 import { evaluateSignal } from '../data/signalLifecycle';
+import { useRefresh } from '../hooks/useRefresh';
 import { useUniverseSelection, useUniverseStocks } from '../hooks/useUniverse';
 import { useScreenerData } from '../hooks/useScreenerData';
 import { swingSetupList, trendingList } from '../data/stockLists';
@@ -263,18 +264,20 @@ export default function StrategyWorkspace({ mode, selectedStock, demoMode, onSel
   const load = useCallback(async () => {
     setLoading(true);
     const [h, m] = await Promise.all([fetchHistory(symbol, frame.range, frame.interval), fetchMarketStatus()]);
-    setHistory(h);
+    if (h) setHistory(h);
+    else setHistory((prev) => prev ?? null);
     if (m) setMarket(m);
     setLoading(false);
-    setLoadedAt(Date.now());
+    if (h) setLoadedAt(Date.now());
+    return Boolean(h);
   }, [symbol, frame.range, frame.interval]);
 
-  useEffect(() => {
-    if (demoMode) return undefined;
-    load();
-    const timer = mode === 'intraday' ? setInterval(load, 60000) : null;
-    return () => { if (timer) clearInterval(timer); };
-  }, [load, mode, demoMode]);
+  // Intraday and Swing both refresh on the shared 60 s scheduler without remounting the chart
+  useRefresh(
+    `workspace:${mode}:${symbol}:${frame.range}:${frame.interval}`,
+    async () => ((await load()) ? { ok: true } : null),
+    !demoMode,
+  );
 
   useEffect(() => { setSelectedId(null); }, [symbol, tf]);
 

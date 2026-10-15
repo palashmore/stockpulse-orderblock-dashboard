@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useRefresh } from '../hooks/useRefresh';
 import { RefreshCw, Search, Sparkles, TrendingUp, Calendar, Star, Clock } from 'lucide-react';
 import IpoCard from './IpoCard';
 import { fetchIpos, fetchQuotes } from '../services/api';
@@ -34,18 +35,10 @@ export default function IpoPanel() {
         ? { loading: false, data: result, error: null }
         : { loading: false, data: prev.data, error: result.error }
     );
+    return result.ok;
   }, []);
 
-  useEffect(() => {
-    const first = setTimeout(load, 0);
-    const timer = setInterval(() => {
-      if (!document.hidden) load();
-    }, REFRESH_MS);
-    return () => {
-      clearTimeout(first);
-      clearInterval(timer);
-    };
-  }, [load]);
+  useRefresh('ipos', async () => ((await load()) ? { ok: true } : null), true, REFRESH_MS);
 
   const pending = state.data?.detailsPending ?? 0;
   useEffect(() => {
