@@ -7,6 +7,7 @@ import StockQuickView from './StockQuickView';
 import { UnavailableState } from './DataStatusBadge';
 import { useUniverseSelection, useUniverseStocks } from '../hooks/useUniverse';
 import { useQuotesBatch } from '../hooks/useQuotesBatch';
+import Freshness from './Freshness';
 import { useIndexLevels } from '../hooks/useIndexLevels';
 import { useScreenerData, MAX_SCAN } from '../hooks/useScreenerData';
 import { rankStocks } from '../data/ranking';
@@ -196,6 +197,7 @@ export default function MarketDashboard({ onSelectStock, demoMode = false, marke
         </div>
         <div className="flex items-center gap-2">
           {meta && <span className="text-[10px]" style={{ color: meta.color }} title={meta.description}>{meta.label}</span>}
+          <Freshness lastSuccessAt={quotes.lastSuccessAt} failures={quotes.failed ? 1 : 0} />
           <button
             onClick={quotes.reload}
             aria-label="Reload quotes"

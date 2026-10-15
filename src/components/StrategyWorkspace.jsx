@@ -10,6 +10,7 @@ import { loadStrategyConfig, saveStrategyConfig, loadSlippage, SLIPPAGE_KEY } fr
 import { STATUS_META } from '../data/dataStatus';
 import { evaluateSignal } from '../data/signalLifecycle';
 import { useRefresh } from '../hooks/useRefresh';
+import Freshness from './Freshness';
 import { useUniverseSelection, useUniverseStocks } from '../hooks/useUniverse';
 import { useScreenerData } from '../hooks/useScreenerData';
 import { swingSetupList, trendingList } from '../data/stockLists';
@@ -273,7 +274,7 @@ export default function StrategyWorkspace({ mode, selectedStock, demoMode, onSel
   }, [symbol, frame.range, frame.interval]);
 
   // Intraday and Swing both refresh on the shared 60 s scheduler without remounting the chart
-  useRefresh(
+  const feed = useRefresh(
     `workspace:${mode}:${symbol}:${frame.range}:${frame.interval}`,
     async () => ((await load()) ? { ok: true } : null),
     !demoMode,
@@ -395,6 +396,7 @@ export default function StrategyWorkspace({ mode, selectedStock, demoMode, onSel
             {statusMeta.label}
           </span>
           {history?.asOf && <span className="hidden sm:inline text-[10px] text-gray-500">as of {formatTime(history.asOf)}</span>}
+          {!demoMode && <Freshness lastSuccessAt={feed.lastSuccessAt} failures={feed.failures} />}
           <button onClick={load} disabled={loading} aria-label="Refresh" className="p-1.5 rounded text-gray-400 hover:text-gray-200 hover:bg-white/5 cursor-pointer">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
