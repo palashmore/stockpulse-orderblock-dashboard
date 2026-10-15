@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Eye, EyeOff, RefreshCw, Briefcase, TrendingUp, TrendingDown, Wallet, PieChart, ShieldAlert } from 'lucide-react';
+import { Eye, EyeOff, RefreshCw, Briefcase, TrendingUp, PieChart, ShieldAlert, Gauge } from 'lucide-react';
 import { fetchPortfolio } from '../services/api';
 import { loadSettings } from '../data/settings';
 import { loadCosts, saveCosts, setCost } from '../data/costBasis';
 import { usePortfolioAnalysis } from '../hooks/usePortfolioAnalysis';
 import { ReviewView, AllocationView, CorrelationView } from './PortfolioReview';
+import PortfolioAdvanced from './PortfolioAdvanced';
 
 const GREEN = '#00e676';
 const RED = '#ff1744';
@@ -17,6 +18,7 @@ const VIEWS = [
   { id: 'review', label: 'Review: Buy, Hold, Sell', icon: ShieldAlert },
   { id: 'allocation', label: 'Allocation', icon: PieChart },
   { id: 'correlation', label: 'Correlation & Risk', icon: TrendingUp },
+  { id: 'advanced', label: 'Advanced', icon: Gauge },
 ];
 
 export default function PortfolioPanel({ onSelectStock }) {
@@ -67,7 +69,7 @@ export default function PortfolioPanel({ onSelectStock }) {
   const portfolio = usePortfolioAnalysis(analysisWanted ? holdings : null, analysisInput);
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto flex flex-col" style={{ backgroundColor: '#0a0e17' }}>
+    <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col" style={{ backgroundColor: '#0a0e17', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
       {/* Top Header Bar */}
       <div
         className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 flex-shrink-0"
@@ -150,7 +152,7 @@ export default function PortfolioPanel({ onSelectStock }) {
       {/* Sub-Views Navigation Tab Bar */}
       {data && (
         <div
-          className="flex flex-wrap items-center gap-2 px-4 py-2 flex-shrink-0"
+          className="flex items-center gap-2 px-3 sm:px-4 py-2 flex-shrink-0 overflow-x-auto whitespace-nowrap"
           style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.3)', backgroundColor: '#0d1117' }}
         >
           {VIEWS.map((v) => {
@@ -164,7 +166,7 @@ export default function PortfolioPanel({ onSelectStock }) {
                   if (v.id !== 'holdings') setAnalysisWanted(true);
                 }}
                 aria-pressed={active}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md font-medium cursor-pointer transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md font-medium cursor-pointer transition-all flex-shrink-0 ${
                   active
                     ? 'bg-emerald-500/20 text-emerald-400 font-semibold'
                     : 'bg-white/5 text-gray-400 hover:text-gray-200'
@@ -206,6 +208,9 @@ export default function PortfolioPanel({ onSelectStock }) {
         <AllocationView {...portfolio} holdings={data.holdings} hidden={hidden} />
       )}
       {data && view === 'correlation' && <CorrelationView {...portfolio} />}
+      {data && view === 'advanced' && (
+        <PortfolioAdvanced analysis={portfolio.analysis} candles={portfolio.candles} holdings={data.holdings} loading={portfolio.loading} progress={portfolio.progress} hidden={hidden} />
+      )}
       {costSaveFailed && view === 'review' && (
         <p className="px-4 py-2 text-[11px]" style={{ color: '#ff1744' }}>
           Could not persist your average buy prices in browser local storage.
@@ -224,8 +229,8 @@ export default function PortfolioPanel({ onSelectStock }) {
             </div>
           )}
 
-          <div className="flex-1 overflow-x-auto min-h-0">
-            <table className="w-full text-xs">
+          <div className="overflow-x-auto flex-shrink-0" style={{ touchAction: 'pan-x pan-y' }}>
+            <table className="w-full text-xs" style={{ minWidth: '34rem' }}>
               <thead className="sticky top-0 z-10" style={{ backgroundColor: '#0d1117' }}>
                 <tr className="text-[10px] text-gray-500 uppercase tracking-wider" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.5)' }}>
                   <th className="px-4 py-2 font-medium text-left">Stock</th>

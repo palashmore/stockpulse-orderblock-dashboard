@@ -65,6 +65,7 @@ export function usePortfolioAnalysis(holdings, { funds = null, totalValue = null
 
   return {
     analysis,
+    candles: ready ? state.candles : null,
     loading: Boolean(key) && !ready,
     progress: state.key === key ? { done: state.done, total: state.total } : { done: 0, total: targets.length },
     missing: state.key === key ? state.missing : [],

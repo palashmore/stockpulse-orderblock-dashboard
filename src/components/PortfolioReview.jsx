@@ -67,7 +67,7 @@ export function ReviewView({ analysis, loading, progress, missing, limited, onCo
   const unnamed = analysis.rows.length - rows.length;
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div className="flex flex-col flex-shrink-0">
       {/* Portfolio Advisory Notes */}
       {analysis.notes.length > 0 && (
         <section className="px-4 py-3 space-y-1.5" style={{ backgroundColor: '#0d1117', ...rule }}>
@@ -123,7 +123,7 @@ export function ReviewView({ analysis, loading, progress, missing, limited, onCo
       )}
 
       {/* Table of Verdicts */}
-      <div className="flex-1 overflow-x-auto min-h-0">
+      <div className="overflow-x-auto flex-shrink-0">
         <table className="w-full text-xs">
           <thead className="sticky top-0 z-10" style={{ backgroundColor: '#0d1117' }}>
             <tr className="text-[10px] text-gray-500 uppercase tracking-wider" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.5)' }}>
@@ -309,7 +309,7 @@ export function AllocationView({ analysis, loading, progress, missing, holdings,
     .map((h) => ({ key: h.symbol || h.code, value: h.value, weightPct: h.weightPct, symbols: [h.name] }));
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="flex-shrink-0">
       {c && (
         <div
           className="grid grid-cols-2 sm:grid-cols-5 gap-2 px-4 py-3 flex-shrink-0"
@@ -375,7 +375,7 @@ export function CorrelationView({ analysis, loading, progress, missing }) {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="flex-shrink-0">
       {/* Portfolio Risk Header Strip */}
       <div
         className="grid grid-cols-2 sm:grid-cols-4 gap-2 px-4 py-3 flex-shrink-0"
