@@ -1,8 +1,7 @@
 import { useMemo } from 'react';
 import { NIFTY_STOCKS, generateCandlestickData } from '../data/stockData';
 import { fetchNifty50 } from '../services/api';
-
-const REFRESH_MS = 60000;
+import { useRefresh } from './useRefresh';
 
 // Quote-shaped rows built from generated candles. Only used in explicit demo mode.
 function demoQuotes() {
