@@ -3,6 +3,7 @@ import { Panel, Empty, Row, Table } from './ListParts';
 import { Swing, Intraday } from './StockLists';
 import { Opportunities, OrderFlow } from './OpportunityViews';
 import { useIntradayScan, MAX_INTRADAY_SCAN } from '../hooks/useIntradayScan';
+import { scanCoverage } from '../data/coverage';
 import { useWatchlist } from '../hooks/useWatchlist';
 import { WATCH_KINDS, WATCH_LABELS } from '../data/watchStore';
 import {
@@ -123,6 +124,7 @@ export default function DiscoveryTabs({ rows, stocks, scan, market, view, onView
         {view.tab === 'intraday' && (
           <>
             {intraday.loading && <p className="pb-2 text-[11px] text-gray-500">Loading 5-minute candles… {intraday.done} of {intraday.total}{stocks.length > MAX_INTRADAY_SCAN ? ` (the first ${MAX_INTRADAY_SCAN} of ${stocks.length} stocks)` : ''}</p>}
+            {!intraday.loading && intraday.total > 0 && <p className="pb-2 text-[11px] text-gray-500" aria-live="polite">{scanCoverage({ universe: stocks.length, scanned: intraday.total, failed: intraday.excluded.length, reasons: [...new Set(intraday.excluded.map((e) => e.reason))] }).text}</p>}
             <Intraday scan={intradayShown} watch={watch} onOpen={onOpen} market={market} />
           </>
         )}

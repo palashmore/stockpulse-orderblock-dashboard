@@ -15,7 +15,7 @@ const STALE_STATUSES = new Set(['STALE', 'UNAVAILABLE', 'SIMULATED']);
 const cache = new Map(); // universe key -> { at, rows, excluded }
 // One entry per stock (not per universe): a scan that is interrupted by a tab switch keeps what it loaded, a second scan
 // of the same stocks reuses it, and two scans asking for the same stock at once share one request.
-const outcomes = createLoadCache({ ttlMs: 10 * 60 * 1000, failTtlMs: 30 * 1000, max: 800 });
+const outcomes = createLoadCache({ ttlMs: 10 * 60 * 1000, failTtlMs: 30 * 1000, max: 1500 });
 
 /** The result of loading and measuring one stock: { metrics, dataStatus, provider } or { reason }. */
 async function loadOutcome(symbol) {
@@ -28,7 +28,7 @@ async function loadOutcome(symbol) {
   return reason ? { reason } : { metrics, dataStatus: history.dataStatus, provider: history.provider };
 }
 const isFailed = (o) => Boolean(o.reason);
-export const MAX_SCAN = 250;
+export const MAX_SCAN = 500;
 const TTL_MS = 10 * 60 * 1000;
 
 export function useScreenerData(stocks, enabled) {

@@ -1,4 +1,5 @@
 import { Star, RefreshCw } from 'lucide-react';
+import { scanCoverage } from '../data/coverage';
 
 // Table building blocks shared by Stock Lists and the Dashboard's discovery tabs.
 
@@ -55,9 +56,9 @@ export function Progress({ loading, done, total, excluded, loadedAt, reload, tru
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-2 text-[11px] text-gray-500" aria-live="polite">
       <span>
-        {loading ? `Loading candles… ${done} of ${total}` : `${total - excluded.length} of ${total} stocks scanned`}
-        {!loading && excluded.length > 0 && ` · ${excluded.length} not covered (${[...new Set(excluded.map((e) => e.reason))].join(', ')})`}
-        {truncated && ` · this index has ${universe} stocks; only the first ${limit} are scanned`}
+        {loading
+          ? `Loading candles… ${done} of ${total}${truncated ? ` (first ${limit} of ${universe} stocks)` : ''}`
+          : scanCoverage({ universe: truncated ? universe : total, scanned: total, failed: excluded.length, reasons: [...new Set(excluded.map((e) => e.reason))] }).text}
       </span>
       <span className="flex items-center gap-2">
         {loadedAt && <span>Loaded {new Date(loadedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>}

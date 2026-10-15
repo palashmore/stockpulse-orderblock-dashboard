@@ -9,9 +9,9 @@ import { createLoadCache } from '../data/loadCache';
 const CONCURRENCY = 6;
 const FRAME_MS = 300000; // 5-minute candles
 const TTL_MS = 3 * 60 * 1000;
-export const MAX_INTRADAY_SCAN = 150;
+export const MAX_INTRADAY_SCAN = 300;
 const cache = new Map(); // universe key -> { at, scans, excluded }
-const fetched = createLoadCache({ ttlMs: TTL_MS, failTtlMs: 30 * 1000, max: 400 }); // per stock, so a switch of tab does not restart the scan
+const fetched = createLoadCache({ ttlMs: TTL_MS, failTtlMs: 30 * 1000, max: 800 }); // per stock, so a switch of tab does not restart the scan
 
 /**
  * Runs the Intraday workspace's rules over each stock's 5-minute candles (Yahoo, a few at a time,
