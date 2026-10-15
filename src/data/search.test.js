@@ -41,3 +41,10 @@ describe('mergeSearchResults', () => {
     expect(mergeSearchResults(local, null, 'zzz')).toEqual([]);
   });
 });
+
+describe('mergeSearchResults remote ranking', () => {
+  it('ranks exact and prefix server matches above fuzzy name matches', () => {
+    const remote = [{ symbol: 'ZZZ', name: 'Has tata inside' }, { symbol: 'TATAPOWER', name: 'Tata Power' }, { symbol: 'TATA', name: 'x' }];
+    expect(mergeSearchResults([], remote, 'tata').map((s) => s.symbol)).toEqual(['TATA', 'TATAPOWER', 'ZZZ']);
+  });
+});

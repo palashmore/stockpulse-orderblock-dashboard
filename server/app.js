@@ -649,20 +649,21 @@ export function createApp({
     const query = req.query.q;
     if (!query || typeof query !== 'string') return res.json([]);
 
-    const cacheKey = `search_${query}`;
+    const needle = query.trim().toLowerCase();
+    if (!needle) return res.json([]);
+    const cacheKey = `search_${needle}`;
     const cached = cache.getFresh(cacheKey, POLICY.search.ttl);
     if (cached) return res.json(cached);
 
-    // Matches from ICICI's NSE instrument list work even when Yahoo is unreachable
-    const needle = query.trim().toLowerCase();
+    // Matches from ICICI's NSE instrument list work even when Yahoo is unreachable. The list may still be
+    // loading on the first searches, so wait briefly for it instead of searching an empty list.
+    if (!master) await Promise.race([getMaster(), new Promise((resolve) => setTimeout(resolve, 4000))]);
     const masterHits = [];
-    if (master && needle.length >= 2) {
+    if (master) {
       for (const info of master.bySymbol.values()) {
         const sym = info.symbol.toLowerCase();
-        if (sym.startsWith(needle) || sym.includes(needle) || (info.name || '').toLowerCase().includes(needle)) {
-          masterHits.push({ symbol: info.symbol, name: info.name, exchange: 'NSE', type: 'EQUITY', yahooSymbol: `${info.symbol}.NS` });
-          if (masterHits.length >= 40) break;
-        }
+        const hit = needle.length >= 2 ? (sym.includes(needle) || (info.name || '').toLowerCase().includes(needle)) : sym.startsWith(needle);
+        if (hit) masterHits.push({ symbol: info.symbol, name: info.name, exchange: 'NSE', type: 'EQUITY', yahooSymbol: `${info.symbol}.NS` });
       }
       masterHits.sort((a, b) => {
         const rank = (x) => (x.symbol.toLowerCase() === needle ? 0 : x.symbol.toLowerCase().startsWith(needle) ? 1 : 2);
@@ -671,7 +672,8 @@ export function createApp({
     }
     const mergeHits = (yahooResults) => {
       const seen = new Set();
-      return [...yahooResults, ...masterHits.slice(0, 10)].filter((r) => !seen.has(r.symbol) && seen.add(r.symbol)).slice(0, 15);
+      // Exact/prefix instrument matches first (they are what was typed), then Yahoo's name matches, then the rest
+      return [...masterHits.slice(0, 12), ...yahooResults, ...masterHits.slice(12, 30)].filter((r) => !seen.has(r.symbol) && seen.add(r.symbol)).slice(0, 25);
     };
 
     try {
@@ -691,12 +693,12 @@ export function createApp({
       }));
 
       const merged = mergeHits(results);
-      cache.set(cacheKey, merged);
+      if (merged.length > 0 && master) cache.set(cacheKey, merged);
       res.json(merged);
     } catch (error) {
       console.error('Search error:', error.message);
       // Yahoo failed: the instrument list, else the static Nifty 50 symbols
-      if (masterHits.length > 0) return res.json(masterHits.slice(0, 15));
+      if (masterHits.length > 0) return res.json(masterHits.slice(0, 25));
       const lower = query.toLowerCase();
       res.json(
         NIFTY50_SYMBOLS

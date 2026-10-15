@@ -17,7 +17,7 @@ export default function SearchBar({ selectedStock, onSelectStock }) {
   // Local Nifty 50 matches show instantly; remote NSE matches debounce at 250ms
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) return;
+    if (q.length < 1) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
       const results = await searchStocks(q);
@@ -31,8 +31,8 @@ export default function SearchBar({ selectedStock, onSelectStock }) {
 
   const q = query.trim();
   const remoteForQuery = remote.query === q ? remote.results : [];
-  const searching = q.length >= 2 && remote.query !== q;
-  const filtered = mergeSearchResults(NIFTY_STOCKS, remoteForQuery, query, 10);
+  const searching = q.length >= 1 && remote.query !== q;
+  const filtered = mergeSearchResults(NIFTY_STOCKS, remoteForQuery, query, 15);
   const highlighted = Math.min(active, Math.max(0, filtered.length - 1));
 
   const choose = (stock) => {

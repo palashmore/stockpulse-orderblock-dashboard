@@ -25,6 +25,11 @@ export function mergeSearchResults(local, remote, query, limit = 10) {
     .filter((x) => x.r !== null)
     .sort((a, b) => a.r - b.r || a.s.symbol.localeCompare(b.s.symbol))
     .forEach((x) => add(x.s));
-  (remote || []).forEach(add);
+  // Server hits are ranked the same way (exact, prefix, contains); name-only matches from the provider come last
+  (remote || [])
+    .filter((s) => s && s.symbol)
+    .map((s, i) => ({ s, r: rank(s) ?? 3, i }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .forEach((x) => add(x.s));
   return out.slice(0, limit);
 }
