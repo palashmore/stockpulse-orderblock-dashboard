@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ArrowUpDown, Star, RefreshCw, Filter, TrendingUp, TrendingDown, Activity, Sparkles, X } from 'lucide-react';
-import { useScreenerData } from '../hooks/useScreenerData';
+import { useScreenerData, MAX_SCAN } from '../hooks/useScreenerData';
+import { scanCoverage } from '../data/coverage';
 import {
   DEFAULT_FILTERS, PRESETS, presetFilters, validateFilters, screen,
   loadSavedFilters, saveFilters, upsertSaved,
@@ -63,7 +64,8 @@ function SelectInput({ label, value, options, onChange }) {
 }
 
 export default function DailyScreener({ stocks = null, universeLabel = null, onSelectStock }) {
-  const universe = useMemo(() => (stocks && stocks.length > 0 ? stocks : NIFTY_STOCKS), [stocks]);
+  const fullUniverse = useMemo(() => (stocks && stocks.length > 0 ? stocks : NIFTY_STOCKS), [stocks]);
+  const universe = useMemo(() => fullUniverse.slice(0, MAX_SCAN), [fullUniverse]);
   const { rows, excluded, done, total, loading, loadedAt, reload } = useScreenerData(universe, true);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [sort, setSort] = useState({ key: 'turnoverCr', dir: 'desc' });
@@ -284,7 +286,7 @@ export default function DailyScreener({ stocks = null, universeLabel = null, onS
               <span className="text-emerald-400 font-bold">{result.length}</span> of {rows.length} covered stocks match
             </span>
           )}
-          {!loading && excluded.length > 0 && ` · ${excluded.length} not covered (${[...new Set(excluded.map((e) => e.reason))].join(', ')})`}
+          {!loading && ` · ${scanCoverage({ universe: fullUniverse.length, scanned: total, failed: excluded.length, reasons: [...new Set(excluded.map((e) => e.reason))] }).text}`}
           {!storageOk && <span style={{ color: RED }}> · browser storage is blocked, so saves will not last</span>}
         </span>
         <span className="flex items-center gap-2">

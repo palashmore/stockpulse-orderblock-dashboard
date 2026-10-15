@@ -463,7 +463,7 @@ export default function App() {
             backdropFilter: 'blur(10px)',
           }}
         >
-          <div className="flex items-center gap-2 min-w-0 flex-shrink-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1 sm:flex-none sm:flex-shrink-0">
             <SearchBar selectedStock={selectedStock} onSelectStock={handleSelectStock} />
             <div className="hidden sm:block">
               <IndexSelect selection={universeSelection} labels={universeLabels} count={universeStocks?.length ?? 0} />
@@ -475,7 +475,7 @@ export default function App() {
             <MarketTickerStrip demoMode={demoMode} />
           </div>
 
-          <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
             <ThemeToggle />
 
             {/* Data status indicator */}

@@ -21,12 +21,8 @@ export default function MarketHeatmap({ rows = [], onOpen = null }) {
   // Filter rows based on selected universe filter tab
   const filteredRows = useMemo(() => {
     if (!rows || rows.length === 0) return [];
-    if (filterTab === 'Nifty 50') {
-      return rows.filter((r) => r.indices?.includes('nifty50') || r.symbol.length <= 10);
-    }
-    if (filterTab === 'Nifty 100') {
-      return rows.filter((r) => r.indices?.includes('nifty100') || r.indices?.includes('nifty50') || true).slice(0, 100);
-    }
+    if (filterTab === 'Nifty 50') return rows.filter((r) => r.indices?.includes('nifty50'));
+    if (filterTab === 'Nifty 100') return rows.filter((r) => r.indices?.includes('nifty100') || r.indices?.includes('nifty50'));
     return rows;
   }, [rows, filterTab]);
 

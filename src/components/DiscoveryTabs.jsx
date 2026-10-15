@@ -3,6 +3,7 @@ import { Panel, Empty, Row, Table } from './ListParts';
 import { Swing, Intraday } from './StockLists';
 import { Opportunities, OrderFlow } from './OpportunityViews';
 import { useIntradayScan, MAX_INTRADAY_SCAN } from '../hooks/useIntradayScan';
+import { MAX_SCAN } from '../hooks/useScreenerData';
 import { scanCoverage } from '../data/coverage';
 import { useWatchlist } from '../hooks/useWatchlist';
 import { WATCH_KINDS, WATCH_LABELS } from '../data/watchStore';
@@ -31,7 +32,7 @@ function SimpleTable({ rows, watch, onOpen, emptyText }) {
   if (rows.length === 0) return <Empty>{emptyText}</Empty>;
   return (
     <Table head={['Price', 'Day', 'Rel vol', 'Traded today', 'Sector']}>
-      {rows.slice(0, 100).map((r) => (
+      {rows.slice(0, MAX_SCAN).map((r) => (
         <Row key={r.symbol} r={r} watch={watch} onOpen={onOpen} target="orderblock" cols={[
           { text: px(r.price), color: '#d1d5db' },
           { text: signed(r.changePct), color: tone(r.changePct) },

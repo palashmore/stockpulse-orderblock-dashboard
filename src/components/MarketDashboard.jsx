@@ -8,6 +8,7 @@ import { UnavailableState } from './DataStatusBadge';
 import { useUniverseSelection, useUniverseStocks } from '../hooks/useUniverse';
 import { useQuotesBatch } from '../hooks/useQuotesBatch';
 import Freshness from './Freshness';
+import { scanCoverage } from '../data/coverage';
 import { useIndexLevels } from '../hooks/useIndexLevels';
 import { useScreenerData, MAX_SCAN } from '../hooks/useScreenerData';
 import { rankStocks } from '../data/ranking';
@@ -191,6 +192,7 @@ export default function MarketDashboard({ onSelectStock, demoMode = false, marke
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-1.5 text-[11px] text-gray-500" style={{ backgroundColor: 'rgba(17, 24, 39, 0.5)', borderBottom: '1px solid rgba(30, 45, 61, 0.4)' }}>
         <div>
           {coverageLine({ universeCount: stocks ? stocks.length : 0, pricedCount: rows.length, unpriced, failedIds })}
+          {scan.total > 0 && !scan.loading ? ` · scan: ${scanCoverage({ universe: stocks ? stocks.length : 0, scanned: scan.total, failed: scan.excluded.length, reasons: [...new Set(scan.excluded.map((e) => e.reason))] }).text}` : scan.loading ? ` · scanning ${scan.done} of ${scan.total}` : ''}
           {result?.asOf ? ` · prices as of ${stamp(result.asOf)} IST` : ''}
           {result?.fetchedAt ? ` · refreshed ${stamp(result.fetchedAt)}` : ''}
           {quotes.failed && result ? <span style={{ color: '#ffd600' }}> · last refresh failed, showing cached prices</span> : null}

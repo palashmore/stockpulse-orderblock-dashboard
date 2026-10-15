@@ -12,7 +12,8 @@ import { evaluateSignal } from '../data/signalLifecycle';
 import { useRefresh } from '../hooks/useRefresh';
 import Freshness from './Freshness';
 import { useUniverseSelection, useUniverseStocks } from '../hooks/useUniverse';
-import { useScreenerData } from '../hooks/useScreenerData';
+import { useScreenerData, MAX_SCAN } from '../hooks/useScreenerData';
+import { scanCoverage } from '../data/coverage';
 import { swingSetupList, trendingList } from '../data/stockLists';
 
 const MODES = {
@@ -121,7 +122,7 @@ function Stats({ title, s }) {
 function SwingCandidatesExplorer({ onSelectStock, currentSymbol }) {
   const selection = useUniverseSelection();
   const { stocks } = useUniverseStocks(selection.universe);
-  const scanStocks = useMemo(() => (stocks ? stocks.slice(0, 40) : []), [stocks]);
+  const scanStocks = useMemo(() => (stocks ? stocks.slice(0, MAX_SCAN) : []), [stocks]);
   const daily = useScreenerData(scanStocks, true);
   const [filter, setFilter] = useState('all');
 
@@ -196,7 +197,7 @@ function SwingCandidatesExplorer({ onSelectStock, currentSymbol }) {
           ))}
         </div>
         <span className="text-[10px] text-gray-500">
-          {daily.loading ? `Scanning… ${daily.done}/${daily.total}` : `${candidates.length} candidates`}
+          {daily.loading ? `Scanning… ${daily.done}/${daily.total}` : `${candidates.length} candidates · ${scanCoverage({ universe: stocks ? stocks.length : 0, scanned: daily.total, failed: daily.excluded.length, reasons: [...new Set(daily.excluded.map((e) => e.reason))] }).text}`}
         </span>
       </div>
 
