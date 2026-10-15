@@ -4,6 +4,7 @@ import { Panel, Empty, Row, Table, Progress, Star2 } from './ListParts';
 import IndexSelect from './IndexSelect';
 import { useUniverseSelection, useUniverseStocks } from '../hooks/useUniverse';
 import { useQuotesBatch } from '../hooks/useQuotesBatch';
+import Freshness from './Freshness';
 import { useScreenerData, MAX_SCAN } from '../hooks/useScreenerData';
 import { useIntradayScan, MAX_INTRADAY_SCAN } from '../hooks/useIntradayScan';
 import { useWatchlist } from '../hooks/useWatchlist';
@@ -89,7 +90,7 @@ function StockDistributionScatter({ quotes, onSelectStock }) {
 // Focused Table for Gainers, Losers, and Volume Modes
 function FocusedMoversTable({ mode, stocks, watch, onOpen, searchQuery, selectedSector }) {
   const symbols = useMemo(() => stocks.map((s) => s.symbol), [stocks]);
-  const { result, failed, loading, reload } = useQuotesBatch(symbols, true);
+  const { result, failed, loading, reload, lastSuccessAt } = useQuotesBatch(symbols, true);
   const nameOf = useMemo(() => Object.fromEntries(stocks.map((s) => [s.symbol, s])), [stocks]);
   const m = useMemo(() => (result ? moversFromQuotes(result.quotes) : null), [result]);
   const status = STATUS_META[failed && !result ? 'UNAVAILABLE' : failed ? 'STALE' : result?.dataStatus] ?? STATUS_META.UNAVAILABLE;
@@ -148,6 +149,7 @@ function FocusedMoversTable({ mode, stocks, watch, onOpen, searchQuery, selected
               IST
             </span>
           )}
+          <Freshness lastSuccessAt={lastSuccessAt} failures={failed ? 1 : 0} />
           <button onClick={reload} aria-label="Reload quotes" className="p-1 rounded text-gray-500 hover:text-gray-200 cursor-pointer">
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
           </button>

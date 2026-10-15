@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, RefreshCw, Search, TrendingUp, TrendingDown, ArrowUpDown, Clock, Layers } from 'lucide-react';
 import { useWatchlist } from '../hooks/useWatchlist';
 import { useQuotesBatch } from '../hooks/useQuotesBatch';
+import Freshness from './Freshness';
 import { searchStocks } from '../services/api';
 import { sinceAddedPct, WATCH_KINDS, WATCH_LABELS } from '../data/watchStore';
 import { STATUS_META } from '../data/dataStatus';
@@ -17,7 +18,7 @@ export default function MyWatchlist({ onOpen }) {
   const watch = useWatchlist(kind);
   const other = kind === 'daily' ? 'swing' : 'daily';
   const symbols = useMemo(() => watch.list.map((e) => e.symbol), [watch.list]);
-  const { result, failed, loading, reload } = useQuotesBatch(symbols, true);
+  const { result, failed, loading, reload, lastSuccessAt } = useQuotesBatch(symbols, true);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState([]);
   const [sort, setSort] = useState('added');
@@ -157,6 +158,7 @@ export default function MyWatchlist({ onOpen }) {
               {status.label}
             </span>
           )}
+          <span className="ml-2"><Freshness lastSuccessAt={lastSuccessAt} failures={failed ? 1 : 0} /></span>
           <button
             onClick={reload}
             aria-label="Refresh quotes"
