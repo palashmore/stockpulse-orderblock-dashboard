@@ -1,33 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
 const GREEN = '#00e676';
 const RED = '#ff1744';
 
 export default function SectorPerformancePanel({ sectors = [], onSelectSector = null, activeSector = '' }) {
-  const [timeframe, setTimeframe] = useState('1D');
 
-  // Fallback representative sectors if universe is narrow
-  const displaySectors = useMemo(() => {
-    if (sectors && sectors.length >= 4) {
-      return sectors;
-    }
-    return [
-      { sector: 'PSU Bank', avgChangePct: 2.14, count: 12 },
-      { sector: 'Private Bank', avgChangePct: 1.32, count: 10 },
-      { sector: 'Auto', avgChangePct: 0.86, count: 15 },
-      { sector: 'IT', avgChangePct: 0.74, count: 10 },
-      { sector: 'Energy', avgChangePct: 0.52, count: 8 },
-      { sector: 'Financial Services', avgChangePct: 0.46, count: 16 },
-      { sector: 'Metal', avgChangePct: 0.28, count: 14 },
-      { sector: 'Realty', avgChangePct: 0.12, count: 10 },
-      { sector: 'FMCG', avgChangePct: -0.18, count: 15 },
-      { sector: 'Pharma', avgChangePct: -0.32, count: 20 },
-    ];
-  }, [sectors]);
+  // Only sectors measured from the loaded stocks. Nothing is filled in.
+  const displaySectors = useMemo(() => (sectors || []).filter((x) => Number.isFinite(x.avgChangePct)), [sectors]);
 
   const maxAbs = Math.max(0.5, ...displaySectors.map((s) => Math.abs(s.avgChangePct)));
-
-  const tfList = ['1D', '1W', '1M', '3M', '1Y'];
 
   return (
     <div className="flex flex-col h-full rounded-lg p-3 shadow-sm" style={{ backgroundColor: '#0d1117', border: '1px solid rgba(30, 45, 61, 0.5)' }}>
@@ -40,22 +21,11 @@ export default function SectorPerformancePanel({ sectors = [], onSelectSector = 
           </h3>
         </div>
 
-        <div className="flex items-center bg-black/40 rounded p-0.5 border border-white/5 text-[10px]">
-          {tfList.map((tf) => (
-            <button
-              key={tf}
-              onClick={() => setTimeframe(tf)}
-              className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
-                timeframe === tf ? 'bg-white/15 text-white font-semibold' : 'text-gray-400 hover:text-gray-200'
-              }`}
-            >
-              {tf}
-            </button>
-          ))}
-        </div>
+        <span className="text-[10px] text-gray-500">Today (1D)</span>
       </div>
 
       {/* Divergent Bar Chart */}
+      {displaySectors.length === 0 && <div className="py-8 text-center text-[11px] text-gray-500">Sector figures need the stock quotes to load.</div>}
       <div className="flex-1 min-h-[220px] max-h-[300px] overflow-y-auto no-scrollbar space-y-1 py-1">
         {displaySectors.map((s) => {
           const isUp = s.avgChangePct >= 0;

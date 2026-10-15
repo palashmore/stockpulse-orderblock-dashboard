@@ -13,40 +13,36 @@ function fmtNum(n) {
 export default function OptionsChainSummary({ optionsData = null }) {
   const [activeSide, setActiveSide] = useState('All'); // 'All' | 'Calls' | 'Puts'
 
-  // Default Nifty 50 Options strikes around 25,550 ATM
-  const defaultStrikes = [
-    { strike: 25350, callLtp: 245.10, callVol: 12450, callChgOI: 8210, callOI: 45320, putLtp: 35.25, putVol: 18420, putChgOI: -6540, putOI: 38120 },
-    { strike: 25400, callLtp: 210.80, callVol: 25640, callChgOI: 12340, callOI: 62150, putLtp: 42.60, putVol: 22310, putChgOI: -4820, putOI: 42560 },
-    { strike: 25450, callLtp: 178.25, callVol: 38920, callChgOI: 18340, callOI: 84220, putLtp: 52.30, putVol: 36180, putChgOI: -3210, putOI: 46210 },
-    { strike: 25500, callLtp: 148.75, callVol: 52180, callChgOI: 22310, callOI: 112450, putLtp: 68.45, putVol: 48530, putChgOI: 2340, putOI: 72180 },
-    { strike: 25550, callLtp: 122.50, callVol: 68420, callChgOI: 28450, callOI: 142680, putLtp: 88.20, putVol: 62940, putChgOI: 8120, putOI: 108450, isATM: true },
-    { strike: 25600, callLtp: 98.60, callVol: 58320, callChgOI: 18540, callOI: 128320, putLtp: 112.75, putVol: 48210, putChgOI: 12430, putOI: 142320 },
-    { strike: 25650, callLtp: 78.45, callVol: 42560, callChgOI: 12210, callOI: 95210, putLtp: 138.60, putVol: 36540, putChgOI: 14210, putOI: 128750 },
-    { strike: 25700, callLtp: 62.10, callVol: 28180, callChgOI: 8320, callOI: 68450, putLtp: 168.25, putVol: 22650, putChgOI: 16540, putOI: 96430 },
-    { strike: 25750, callLtp: 48.30, callVol: 18420, callChgOI: 4560, callOI: 42180, putLtp: 204.15, putVol: 12840, putChgOI: 18210, putOI: 68540 },
-  ];
-
+  // Strikes come only from a real chain, the nine nearest the underlying. No chain, no rows.
   const strikes = useMemo(() => {
-    if (optionsData?.oiData && optionsData.oiData.length >= 5) {
-      const sorted = [...optionsData.oiData].sort((a, b) => a.strike - b.strike);
-      const atm = optionsData.underlyingValue || 25550;
-      return sorted.slice(0, 9).map((d) => ({
-        strike: d.strike,
-        callLtp: d.callLtp,
-        callVol: d.callVolume,
-        callChgOI: d.callOIChange,
-        callOI: d.callOI,
-        putLtp: d.putLtp,
-        putVol: d.putVolume,
-        putChgOI: d.putOIChange,
-        putOI: d.putOI,
-        isATM: Math.abs(d.strike - atm) <= 50,
-      }));
-    }
-    return defaultStrikes;
+    if (!optionsData?.oiData || optionsData.oiData.length < 5 || !Number.isFinite(optionsData.underlyingValue)) return [];
+    const atm = optionsData.underlyingValue;
+    const nearest = [...optionsData.oiData].sort((a, b) => Math.abs(a.strike - atm) - Math.abs(b.strike - atm)).slice(0, 9).sort((a, b) => a.strike - b.strike);
+    const atmStrike = nearest.reduce((best, d) => (Math.abs(d.strike - atm) < Math.abs(best - atm) ? d.strike : best), nearest[0].strike);
+    return nearest.map((d) => ({
+      strike: d.strike,
+      callLtp: d.callLTP,
+      callVol: d.callVolume,
+      callChgOI: d.callOIChange,
+      callOI: d.callOI,
+      putLtp: d.putLTP,
+      putVol: d.putVolume,
+      putChgOI: d.putOIChange,
+      putOI: d.putOI,
+      isATM: d.strike === atmStrike,
+    }));
   }, [optionsData]);
 
-  const expiry = optionsData?.currentExpiry || '30-Oct-2026';
+  const expiry = optionsData?.currentExpiry ?? '—';
+
+  if (strikes.length === 0) {
+    return (
+      <div className="flex flex-col h-full rounded-lg p-3 shadow-sm" style={{ backgroundColor: '#0d1117', border: '1px solid rgba(30, 45, 61, 0.5)' }}>
+        <h3 className="text-xs font-bold text-gray-300 uppercase tracking-wider mb-2">Options Chain (Nifty 50)</h3>
+        <div className="flex-1 flex items-center justify-center text-center text-[11px] text-gray-500 px-2">Option chain unavailable: no options data source is connected, so no strikes, OI or PCR are shown.</div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full rounded-lg p-3 shadow-sm" style={{ backgroundColor: '#0d1117', border: '1px solid rgba(30, 45, 61, 0.5)' }}>

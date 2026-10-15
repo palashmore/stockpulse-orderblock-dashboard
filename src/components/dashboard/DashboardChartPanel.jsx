@@ -1,4 +1,6 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { useRefresh } from '../../hooks/useRefresh';
+import Freshness from '../Freshness';
 import TradingChart from '../TradingChart';
 import { generateCandlestickData } from '../../data/stockData';
 import { fetchHistory } from '../../services/api';
@@ -21,46 +23,35 @@ export default function DashboardChartPanel({ symbol = '^NSEI', displayName = 'N
   const [timeframe, setTimeframe] = useState('D');
   const [candles, setCandles] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [loadedKey, setLoadedKey] = useState('');
 
   const tfConfig = useMemo(() => TIMEFRAMES.find((t) => t.id === timeframe) || TIMEFRAMES[4], [timeframe]);
+  const key = `${symbol}_${timeframe}`;
 
-  useEffect(() => {
-    let cancelled = false;
-    if (demoMode) {
-      setCandles(generateCandlestickData('RELIANCE', 120));
-      return;
-    }
-
+  // Real index candles only, refreshed on the shared scheduler without remounting the chart.
+  // A failed refresh keeps the last good candles (and says so); it never substitutes another symbol's data.
+  const load = useCallback(async () => {
+    if (demoMode) return null;
     setLoading(true);
-    fetchHistory(symbol, tfConfig.range, tfConfig.interval)
-      .then((data) => {
-        if (cancelled) return;
-        if (data?.candles?.length) {
-          setCandles(data.candles);
-        } else {
-          // Fallback to representative candles
-          setCandles(generateCandlestickData('RELIANCE', 100));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setCandles(generateCandlestickData('RELIANCE', 100));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    const data = await fetchHistory(symbol, tfConfig.range, tfConfig.interval);
+    setLoading(false);
+    if (!data?.candles?.length) { setFailed(true); return null; }
+    setCandles(data.candles);
+    setLoadedKey(key);
+    setFailed(false);
+    return data;
+  }, [symbol, tfConfig, demoMode, key]);
+  const feed = useRefresh(`dash-chart:${key}`, load, !demoMode);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [symbol, tfConfig, demoMode]);
-
-  const latest = candles[candles.length - 1];
-  const prev = candles[candles.length - 2];
-  const price = latest?.close ?? 25623.45;
-  const prevPrice = prev?.close ?? (latest?.open ?? 25600);
-  const chg = price - prevPrice;
-  const chgPct = prevPrice > 0 ? (chg / prevPrice) * 100 : 0;
-  const isUp = chg >= 0;
+  const shown = demoMode ? generateCandlestickData('NIFTY', 120) : loadedKey === key ? candles : [];
+  const latest = shown[shown.length - 1];
+  const prev = shown[shown.length - 2];
+  const price = latest?.close ?? null;
+  const prevPrice = prev?.close ?? null;
+  const chg = price !== null && prevPrice !== null ? price - prevPrice : null;
+  const chgPct = chg !== null && prevPrice > 0 ? (chg / prevPrice) * 100 : null;
+  const isUp = (chg ?? 0) >= 0;
 
   return (
     <div className="flex flex-col h-full rounded-lg p-3 shadow-sm" style={{ backgroundColor: '#0d1117', border: '1px solid rgba(30, 45, 61, 0.5)' }}>
@@ -72,9 +63,9 @@ export default function DashboardChartPanel({ symbol = '^NSEI', displayName = 'N
             {displayName}
           </h3>
           <div className="flex items-baseline gap-1.5 font-mono text-xs">
-            <span className="font-bold text-white">{price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+            <span className="font-bold text-white">{price === null ? '—' : price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
             <span className="text-[11px] font-semibold" style={{ color: isUp ? GREEN : RED }}>
-              {isUp ? '+' : ''}{chg.toFixed(2)} ({isUp ? '+' : ''}{chgPct.toFixed(2)}%)
+              {chg === null ? '' : `${isUp ? '+' : ''}${chg.toFixed(2)} (${isUp ? '+' : ''}${chgPct.toFixed(2)}%)`}
             </span>
           </div>
         </div>
@@ -104,9 +95,13 @@ export default function DashboardChartPanel({ symbol = '^NSEI', displayName = 'N
             Updating Chart…
           </div>
         )}
-        {candles.length > 0 && (
+        {shown.length === 0 && !loading && (
+          <div className="absolute inset-0 flex items-center justify-center text-center text-xs text-gray-500 px-4">Chart data unavailable for {displayName} right now.</div>
+        )}
+        {!demoMode && <div className="absolute right-1 bottom-0 z-10"><Freshness lastSuccessAt={feed.lastSuccessAt} failures={failed ? Math.max(1, feed.failures) : feed.failures} /></div>}
+        {shown.length > 0 && (
           <TradingChart
-            candleData={candles}
+            candleData={shown}
             indicators={{ ...DEFAULT_INDICATORS, sma20: true, sma50: true, vwap: true }}
             resetKey={`${symbol}_${timeframe}`}
           />

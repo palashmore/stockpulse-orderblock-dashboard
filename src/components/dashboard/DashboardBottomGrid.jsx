@@ -1,84 +1,66 @@
-import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Plus, ExternalLink, Calendar, Newspaper, Wallet, ListChecks, RefreshCw, ArrowUpRight } from 'lucide-react';
-import { fetchNews } from '../../services/api';
+import { useMemo, useState, useEffect } from 'react';
+import { Plus, Calendar, Newspaper, Wallet, ListChecks, RefreshCw, ArrowUpRight } from 'lucide-react';
+import { fetchNews, fetchPortfolio } from '../../services/api';
+import { useQuotesBatch } from '../../hooks/useQuotesBatch';
+import { useWatchlist } from '../../hooks/useWatchlist';
+import { useRefresh } from '../../hooks/useRefresh';
+import Freshness from '../Freshness';
 
 const GREEN = '#00e676';
 const RED = '#ff1744';
+const inr = (v) => (Number.isFinite(v) ? `₹${v.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '—');
+const signedInr = (v) => (Number.isFinite(v) ? `${v >= 0 ? '+' : '-'}₹${Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '—');
+const signedPct = (v) => (Number.isFinite(v) ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : '');
+const INDEX_LABELS = [['nifty50', 'NIFTY 50'], ['bse_sensex', 'SENSEX'], ['bank', 'NIFTY BANK'], ['midcap100', 'NIFTY MIDCAP 100'], ['smallcap100', 'NIFTY SMALLCAP 100']];
 
-function SparklinePath({ isUp = true }) {
-  const points = isUp ? [15, 12, 14, 10, 12, 7, 9, 4] : [4, 7, 6, 11, 9, 13, 12, 16];
-  const max = Math.max(...points);
-  const min = Math.min(...points);
-  const range = max - min || 1;
-  const width = 50;
-  const height = 18;
-  const step = width / (points.length - 1);
-
-  const path = points
-    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${(i * step).toFixed(1)} ${(((p - min) / range) * (height - 4) + 2).toFixed(1)}`)
-    .join(' ');
-
-  return (
-    <svg width={width} height={height} className="overflow-visible">
-      <path d={path} fill="none" stroke={isUp ? GREEN : RED} strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
+function Empty({ children }) {
+  return <div className="flex-1 flex flex-col items-center justify-center text-center text-[11px] text-gray-500 px-2 py-6">{children}</div>;
 }
 
-const FALLBACK_NEWS = [
-  { id: 'fb_1', time: '11:18 AM', text: 'HAL shares surge 6% on strong Q2 order book and major defence ministry agreements', source: 'Economic Times', tag: 'HAL', tagColor: 'bg-blue-500/20 text-blue-300', link: 'https://www.moneycontrol.com' },
-  { id: 'fb_2', time: '10:52 AM', text: 'RBI keeps repo rate unchanged at 6.50%, maintains neutral policy stance on liquidity', source: 'Reuters', tag: 'RBI', tagColor: 'bg-emerald-500/20 text-emerald-300', link: 'https://www.reuters.com' },
-  { id: 'fb_3', time: '10:34 AM', text: 'FIIs net sell ₹1,245 Cr in cash market; domestic institutions DII net buy ₹2,185 Cr', source: 'Livemint', tag: 'FII/DII', tagColor: 'bg-amber-500/20 text-amber-300', link: 'https://www.livemint.com' },
-  { id: 'fb_4', time: '10:12 AM', text: 'IT sector gains momentum as global cloud spending and consulting outlook improves', source: 'Moneycontrol', tag: 'IT', tagColor: 'bg-cyan-500/20 text-cyan-300', link: 'https://www.moneycontrol.com' },
-  { id: 'fb_5', time: '09:48 AM', text: 'Crude oil prices slip on global demand concerns; upstream energy producers under pressure', source: 'CNBC-TV18', tag: 'ONGC', tagColor: 'bg-purple-500/20 text-purple-300', link: 'https://www.cnbctv18.com' },
-];
-
-export default function DashboardBottomGrid({ onOpen = null }) {
+export default function DashboardBottomGrid({ onOpen = null, levels = null, sectors = [] }) {
   const [wlTab, setWlTab] = useState('My Stocks');
   const [newsTab, setNewsTab] = useState('All');
-  const [portTab, setPortTab] = useState('Holdings');
-  const [equityTf, setEquityTf] = useState('1M');
 
-  // Real News State
-  const [news, setNews] = useState(FALLBACK_NEWS);
-  const [newsLoading, setNewsLoading] = useState(false);
-  const [isLiveNews, setIsLiveNews] = useState(false);
-
+  // News: real feed only. No feed, no headlines.
+  const [news, setNews] = useState([]);
+  const [newsState, setNewsState] = useState('loading'); // loading | live | unavailable
   useEffect(() => {
     let cancelled = false;
-    setNewsLoading(true);
     fetchNews(newsTab)
       .then((res) => {
         if (cancelled) return;
-        setNewsLoading(false);
-        if (res && res.news && res.news.length > 0) {
-          setNews(res.news);
-          setIsLiveNews(true);
-        }
+        const items = res?.news ?? [];
+        setNews(items);
+        setNewsState(items.length > 0 ? 'live' : 'unavailable');
       })
-      .catch(() => {
-        if (!cancelled) setNewsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .catch(() => { if (!cancelled) { setNews([]); setNewsState('unavailable'); } });
+    return () => { cancelled = true; };
   }, [newsTab]);
 
-  const watchlistItems = [
-    { symbol: 'RELIANCE', ltp: 2846.80, chg: 18.40, chgPct: 0.73, isUp: true },
-    { symbol: 'HDFCBANK', ltp: 1678.25, chg: 21.15, chgPct: 1.28, isUp: true },
-    { symbol: 'TCS', ltp: 3512.40, chg: 24.60, chgPct: 0.71, isUp: true },
-    { symbol: 'INFY', ltp: 1442.65, chg: 10.85, chgPct: 0.76, isUp: true },
-    { symbol: 'ICICIBANK', ltp: 1096.30, chg: 14.25, chgPct: 1.32, isUp: true },
-  ];
+  // Watchlist: the user's own saved lists, priced from the shared quote feed
+  const watch = useWatchlist('daily');
+  const watchSymbols = useMemo(() => [...watch.allSymbols], [watch.allSymbols]);
+  const watchQuotes = useQuotesBatch(watchSymbols, watchSymbols.length > 0);
+  const watchRows = useMemo(() => (watchQuotes.result?.quotes ?? []).map((q) => ({ key: q.symbol, label: q.symbol, price: q.price, change: q.change, changePct: q.changePct })), [watchQuotes.result]);
+  const indexRows = useMemo(() => INDEX_LABELS
+    .map(([id, label]) => ({ key: id, label, price: levels?.indices?.[id]?.last, change: levels?.indices?.[id]?.change, changePct: levels?.indices?.[id]?.changePct }))
+    .filter((r) => Number.isFinite(r.price)), [levels]);
+  const sectorRows = useMemo(() => (sectors || []).filter((x) => Number.isFinite(x.avgChangePct))
+    .map((x) => ({ key: x.sector, label: x.sector, price: null, change: null, changePct: x.avgChangePct })), [sectors]);
+  const wlRows = wlTab === 'My Stocks' ? watchRows : wlTab === 'Indices' ? indexRows : sectorRows;
+  const wlEmpty = wlTab === 'My Stocks'
+    ? (watchSymbols.length === 0 ? 'No stocks saved yet. Star a stock in Stock Lists to track it here.' : watchQuotes.loading ? 'Loading prices…' : 'Prices unavailable right now.')
+    : wlTab === 'Indices' ? 'Index levels unavailable right now.' : 'Sector figures need the stock universe to load.';
 
-  const calendarEvents = [
-    { time: '10:00', event: 'India CPI (YoY) SEP', actual: '5.02%', forecast: '5.10%', previous: '5.27%', isPositive: true },
-    { time: '12:00', event: 'US Initial Jobless Claims', actual: '—', forecast: '225K', previous: '218K' },
-    { time: '14:30', event: 'US Core CPI (MoM) SEP', actual: '—', forecast: '0.3%', previous: '0.3%' },
-    { time: '15:45', event: 'US Fed Chair Powell Speech', actual: '—', forecast: '—', previous: '—' },
-    { time: '16:30', event: 'India Industrial Production AUG', actual: '—', forecast: '4.8%', previous: '4.7%' },
-  ];
+  // Portfolio: read-only broker holdings when signed in; otherwise say so
+  const [portfolio, setPortfolio] = useState({ data: null, error: '' });
+  const pf = useRefresh('portfolio-summary', async () => {
+    const r = await fetchPortfolio();
+    if (r.error) { setPortfolio((st) => ({ ...st, error: r.error })); return null; }
+    setPortfolio({ data: r, error: '' });
+    return r;
+  }, true, 5 * 60000);
+  const totals = portfolio.data?.totals;
 
   const cardStyle = {
     backgroundColor: '#0d1117',
@@ -107,7 +89,7 @@ export default function DashboardBottomGrid({ onOpen = null }) {
         </div>
 
         <div className="flex items-center gap-1 mb-2 rounded p-0.5 text-[9px]" style={innerBoxStyle}>
-          {['My Stocks', 'F&O', 'Sectors', 'Indices'].map((t) => (
+          {['My Stocks', 'Sectors', 'Indices'].map((t) => (
             <button
               key={t}
               onClick={() => setWlTab(t)}
@@ -120,29 +102,31 @@ export default function DashboardBottomGrid({ onOpen = null }) {
           ))}
         </div>
 
-        <div className="flex-1 space-y-1.5 text-xs font-mono">
-          {watchlistItems.map((item) => (
-            <div
-              key={item.symbol}
-              onClick={() => onOpen && onOpen(item.symbol)}
-              className="flex items-center justify-between p-1 rounded hover:bg-white/[0.04] cursor-pointer transition-colors"
-            >
-              <div>
-                <div className="font-bold text-gray-200 font-sans">{item.symbol}</div>
-                <div className="text-[10px] text-gray-400">₹{item.ltp.toFixed(2)}</div>
-              </div>
-              <SparklinePath isUp={item.isUp} />
-              <div className="text-right">
-                <div className="font-semibold" style={{ color: item.isUp ? GREEN : RED }}>
-                  {item.isUp ? '+' : ''}{item.chg.toFixed(2)}
+        {wlRows.length === 0 ? <Empty>{wlEmpty}</Empty> : (
+          <div className="flex-1 space-y-1.5 text-xs font-mono">
+            {wlRows.map((item) => {
+              const up = (item.changePct ?? 0) >= 0;
+              return (
+                <div
+                  key={item.key}
+                  onClick={() => wlTab === 'My Stocks' && onOpen && onOpen(item.label)}
+                  className={`flex items-center justify-between p-1 rounded hover:bg-white/[0.04] transition-colors ${wlTab === 'My Stocks' ? 'cursor-pointer' : ''}`}
+                >
+                  <div>
+                    <div className="font-bold text-gray-200 font-sans">{item.label}</div>
+                    {Number.isFinite(item.price) && <div className="text-[10px] text-gray-400">₹{item.price.toFixed(2)}</div>}
+                  </div>
+                  <div className="text-right">
+                    {Number.isFinite(item.change) && (
+                      <div className="font-semibold" style={{ color: up ? GREEN : RED }}>{up ? '+' : ''}{item.change.toFixed(2)}</div>
+                    )}
+                    <div className="text-[10px]" style={{ color: up ? GREEN : RED }}>{signedPct(item.changePct)}</div>
+                  </div>
                 </div>
-                <div className="text-[10px]" style={{ color: item.isUp ? GREEN : RED }}>
-                  {item.isUp ? '+' : ''}{item.chgPct.toFixed(2)}%
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* 2. Real-Time News Feed */}
@@ -153,14 +137,14 @@ export default function DashboardBottomGrid({ onOpen = null }) {
             <h3 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
               Recent News
             </h3>
-            {isLiveNews && (
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" title="Real-time news active" />
+            {newsState === 'live' && (
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" title="Live news feed" />
             )}
           </div>
           <div className="flex items-center gap-1 text-[10px] text-gray-400">
-            {newsLoading && <RefreshCw size={10} className="animate-spin text-cyan-400" />}
+            {newsState === 'loading' && <RefreshCw size={10} className="animate-spin text-cyan-400" />}
             <span className="text-[10px] font-mono text-gray-500">
-              {isLiveNews ? 'LIVE' : 'CACHED'}
+              {newsState === 'live' ? 'LIVE' : newsState === 'loading' ? 'LOADING' : 'UNAVAILABLE'}
             </span>
           </div>
         </div>
@@ -180,6 +164,7 @@ export default function DashboardBottomGrid({ onOpen = null }) {
         </div>
 
         <div className="flex-1 space-y-2 overflow-y-auto no-scrollbar max-h-60">
+          {news.length === 0 && <Empty>{newsState === 'loading' ? 'Loading headlines…' : 'News feed unavailable right now.'}</Empty>}
           {news.map((n, i) => (
             <div
               key={n.id || i}
@@ -223,37 +208,10 @@ export default function DashboardBottomGrid({ onOpen = null }) {
         <div className="flex items-center justify-between mb-2 pb-1.5" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.4)' }}>
           <div className="flex items-center gap-1.5">
             <Calendar size={13} className="text-yellow-400" />
-            <h3 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
-              Economic Calendar
-            </h3>
+            <h3 className="text-xs font-bold text-gray-300 uppercase tracking-wider">Economic Calendar</h3>
           </div>
-          <span className="text-[10px] text-gray-400">Today</span>
         </div>
-
-        <div className="flex-1 overflow-x-auto no-scrollbar">
-          <table className="w-full text-left text-[10px] font-mono">
-            <thead>
-              <tr className="text-gray-500 pb-1" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.4)' }}>
-                <th className="py-1 font-normal">Time</th>
-                <th className="py-1 font-normal font-sans">Event</th>
-                <th className="py-1 text-right font-normal">Actual</th>
-                <th className="py-1 text-right font-normal">Forecast</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/[0.04]">
-              {calendarEvents.map((ev, i) => (
-                <tr key={i} className="hover:bg-white/[0.02]">
-                  <td className="py-1.5 text-gray-400">{ev.time}</td>
-                  <td className="py-1.5 font-sans text-gray-300 truncate max-w-[110px]">{ev.event}</td>
-                  <td className="py-1.5 text-right font-bold" style={{ color: ev.isPositive ? GREEN : '#e2e8f0' }}>
-                    {ev.actual}
-                  </td>
-                  <td className="py-1.5 text-right text-gray-500">{ev.forecast}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Empty>No economic calendar feed is connected, so no events are shown.</Empty>
       </div>
 
       {/* 4. Portfolio Summary */}
@@ -261,65 +219,40 @@ export default function DashboardBottomGrid({ onOpen = null }) {
         <div className="flex items-center justify-between mb-2 pb-1.5" style={{ borderBottom: '1px solid rgba(30, 45, 61, 0.4)' }}>
           <div className="flex items-center gap-1.5">
             <Wallet size={13} className="text-emerald-400" />
-            <h3 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
-              Portfolio Summary
-            </h3>
+            <h3 className="text-xs font-bold text-gray-300 uppercase tracking-wider">Portfolio Summary</h3>
           </div>
-
-          <div className="flex items-center rounded p-0.5 text-[9px]" style={innerBoxStyle}>
-            {['Holdings', 'Positions'].map((t) => (
-              <button
-                key={t}
-                onClick={() => setPortTab(t)}
-                className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
-                  portTab === t ? 'bg-white/15 text-white font-semibold' : 'text-gray-400 hover:text-gray-200'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
+          <Freshness lastSuccessAt={pf.lastSuccessAt} failures={pf.failures} intervalMs={5 * 60000} />
         </div>
 
-        {/* Valuation & Returns */}
-        <div className="mb-2">
-          <div className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Total Value</div>
-          <div className="text-xl font-bold font-mono text-white tracking-tight">₹18,45,320</div>
-          <div className="flex items-center justify-between text-[11px] font-mono mt-1">
-            <span className="text-emerald-400 font-semibold">Day P&L: +₹32,450 (+1.76%)</span>
-            <span className="text-emerald-400 font-semibold">Total P&L: +₹2,15,680 (+13.23%)</span>
-          </div>
-        </div>
-
-        {/* Equity curve preview */}
-        <div className="flex items-center justify-between text-[9px] mb-1">
-          <div className="flex items-center gap-1 rounded p-0.5" style={innerBoxStyle}>
-            {['1D', '1W', '1M', '3M', '1Y'].map((tf) => (
-              <button
-                key={tf}
-                onClick={() => setEquityTf(tf)}
-                className={`px-1 py-0.5 rounded cursor-pointer ${
-                  equityTf === tf ? 'bg-white/15 text-white font-semibold' : 'text-gray-500'
-                }`}
-              >
-                {tf}
-              </button>
-            ))}
-          </div>
-          <SparklinePath isUp={true} />
-        </div>
-
-        {/* Cash vs Invested */}
-        <div className="grid grid-cols-2 gap-2 pt-2 text-[10px] font-mono" style={{ borderTop: '1px solid rgba(30, 45, 61, 0.4)' }}>
-          <div>
-            <div className="text-gray-500">Cash Balance</div>
-            <div className="font-semibold text-gray-200">₹3,45,210</div>
-          </div>
-          <div className="text-right">
-            <div className="text-gray-500">Invested Amount</div>
-            <div className="font-semibold text-gray-200">₹15,00,110</div>
-          </div>
-        </div>
+        {!totals ? (
+          <Empty>
+            <span>{portfolio.error ? `Portfolio not available: ${portfolio.error}` : 'Loading holdings…'}</span>
+            <span className="mt-1">Sign in to ICICI Direct in Settings to see your holdings here.</span>
+          </Empty>
+        ) : (
+          <>
+            <div className="mb-2">
+              <div className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Total Value</div>
+              <div className="text-xl font-bold font-mono text-white tracking-tight">{inr(totals.value)}</div>
+              <div className="flex items-center justify-between text-[11px] font-mono mt-1">
+                <span className="font-semibold" style={{ color: (totals.dayChange ?? 0) >= 0 ? GREEN : RED }}>
+                  Day P&L: {signedInr(totals.dayChange)}{Number.isFinite(totals.dayChangePct) ? ` (${signedPct(totals.dayChangePct)})` : ''}
+                </span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 pt-2 text-[10px] font-mono" style={{ borderTop: '1px solid rgba(30, 45, 61, 0.4)' }}>
+              <div>
+                <div className="text-gray-500">Holdings</div>
+                <div className="font-semibold text-gray-200">{totals.count} stocks</div>
+              </div>
+              <div className="text-right">
+                <div className="text-gray-500">Cash Balance</div>
+                <div className="font-semibold text-gray-200">{inr(portfolio.data.funds?.unallocatedBalance)}</div>
+              </div>
+            </div>
+            {totals.unpriced > 0 && <div className="pt-1 text-[10px] text-amber-400">{totals.unpriced} holding{totals.unpriced > 1 ? 's' : ''} currently unpriced.</div>}
+          </>
+        )}
       </div>
     </div>
   );

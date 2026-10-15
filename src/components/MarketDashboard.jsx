@@ -261,7 +261,7 @@ export default function MarketDashboard({ onSelectStock, demoMode = false, marke
 
       {/* BOTTOM ROW: 4 Quadrants (Watchlist | News Feed | Economic Calendar | Portfolio Summary) */}
       {(activeSubTab === 'Overview' || activeSubTab === 'News') && (
-        <DashboardBottomGrid onOpen={open} />
+        <DashboardBottomGrid onOpen={open} levels={levels.levels} sectors={sectors} />
       )}
 
       {/* DEEP RESEARCH SECTION (Collapsible: Bullish/Bearish Ranking Boards & Scatter Dot Plot) */}

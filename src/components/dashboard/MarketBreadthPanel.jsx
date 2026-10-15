@@ -1,9 +1,8 @@
-import { useMemo, useState } from 'react';
 
 const GREEN = '#00e676';
 const RED = '#ff1744';
 
-function DonutGauge({ adv = 1842, dec = 1102, unc = 92 }) {
+function DonutGauge({ adv = 0, dec = 0, unc = 0 }) {
   const total = adv + dec + unc || 1;
   const advPct = (adv / total) * 100;
   const decPct = (dec / total) * 100;
@@ -65,28 +64,23 @@ function DonutGauge({ adv = 1842, dec = 1102, unc = 92 }) {
 }
 
 export default function MarketBreadthPanel({ breadth = null }) {
-  const [fiiTab, setFiiTab] = useState('Cash');
-
-  // Breadth numbers from real stats or calibrated fallback
-  const adv = breadth?.advancers ?? 1842;
-  const dec = breadth?.decliners ?? 1102;
-  const unc = breadth?.unchanged ?? 92;
+  // Breadth is counted from the stocks actually loaded; with none loaded there is no breadth to show
+  const adv = breadth?.advancers ?? 0;
+  const dec = breadth?.decliners ?? 0;
+  const unc = breadth?.unchanged ?? 0;
   const total = adv + dec + unc;
-  const advPct = total ? ((adv / total) * 100).toFixed(0) : 61;
-  const decPct = total ? ((dec / total) * 100).toFixed(0) : 36;
-  const uncPct = total ? ((unc / total) * 100).toFixed(0) : 3;
-
-  const high52 = 278;
-  const low52 = 96;
-  const total52 = high52 + low52 || 1;
-  const high52Pct = (high52 / total52) * 100;
-
-  // Institutional provisional flow
-  const fiiFlow = {
-    Cash: { fii: -1245.32, dii: 2184.65, net: 939.33 },
-    'F&O': { fii: -840.15, dii: 1450.20, net: 610.05 },
-    MF: { fii: -320.00, dii: 890.50, net: 570.50 },
-  }[fiiTab];
+  const pctOf = (n) => (total ? ((n / total) * 100).toFixed(0) : '0');
+  const advPct = pctOf(adv);
+  const decPct = pctOf(dec);
+  const uncPct = pctOf(unc);
+  if (total === 0) {
+    return (
+      <div className="flex flex-col h-full rounded-lg p-3 shadow-sm" style={{ backgroundColor: '#0d1117', border: '1px solid rgba(30, 45, 61, 0.5)' }}>
+        <h3 className="text-xs font-bold text-gray-300 uppercase tracking-wider mb-2">Market Breadth</h3>
+        <div className="flex-1 flex items-center justify-center text-center text-[11px] text-gray-500">Breadth is counted from loaded stock quotes, which are not available right now.</div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full rounded-lg p-3 shadow-sm" style={{ backgroundColor: '#0d1117', border: '1px solid rgba(30, 45, 61, 0.5)' }}>
@@ -124,53 +118,8 @@ export default function MarketBreadthPanel({ breadth = null }) {
         </div>
       </div>
 
-      {/* 52W High / Low Bar */}
-      <div className="mt-2 pt-2 border-t border-white/5">
-        <div className="flex items-center justify-between text-[10px] font-mono mb-1">
-          <span className="text-emerald-400 font-semibold">52W High {high52}</span>
-          <span className="text-red-400 font-semibold">52W Low {low52}</span>
-        </div>
-        <div className="w-full h-1.5 rounded-full bg-red-500/30 overflow-hidden flex">
-          <div className="h-full bg-emerald-400 rounded-l-full" style={{ width: `${high52Pct}%` }} />
-          <div className="h-full bg-red-500 flex-1 rounded-r-full" />
-        </div>
-      </div>
-
-      {/* FII / DII Activity */}
-      <div className="mt-2.5 pt-2 border-t border-white/5">
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-            FII/DII Activity (₹ Cr)
-          </span>
-          <div className="flex items-center bg-black/40 rounded p-0.5 border border-white/5 text-[9px]">
-            {['Cash', 'F&O', 'MF'].map((t) => (
-              <button
-                key={t}
-                onClick={() => setFiiTab(t)}
-                className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
-                  fiiTab === t ? 'bg-white/15 text-white font-semibold' : 'text-gray-400 hover:text-gray-200'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-1 text-[11px] font-mono">
-          <div className="flex items-center justify-between">
-            <span className="text-gray-400">FII</span>
-            <span className="text-red-400 font-semibold">{fiiFlow.fii.toFixed(2)}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-gray-400">DII</span>
-            <span className="text-emerald-400 font-semibold">+{fiiFlow.dii.toFixed(2)}</span>
-          </div>
-          <div className="flex items-center justify-between pt-1 border-t border-white/5">
-            <span className="text-gray-300 font-bold">Net</span>
-            <span className="text-emerald-400 font-bold">+{fiiFlow.net.toFixed(2)}</span>
-          </div>
-        </div>
+      <div className="mt-2 pt-2 border-t border-white/5 text-[10px] text-gray-500">
+        Counted from the {total.toLocaleString('en-IN')} loaded stocks in the selected universe. 52-week highs/lows and FII/DII flows are not shown because no feed for them is connected.
       </div>
     </div>
   );
