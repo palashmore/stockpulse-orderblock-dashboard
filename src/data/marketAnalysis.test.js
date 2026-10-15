@@ -156,3 +156,20 @@ describe('classifyOIBuildup', () => {
     expect(classifyOIBuildup(0, 0).type).toBe('NEUTRAL');
   });
 });
+
+describe('generateSignalsFromOptions without complete chain data', () => {
+  const candles = Array.from({ length: 10 }, (_, i) => ({ time: i, open: 100, high: 101, low: 99, close: 100 + i }));
+  const level = (strike, oi) => ({ strike, oi, oiChange: 0 });
+  it('returns nothing when PCR is missing instead of assuming a neutral 1', () => {
+    expect(generateSignalsFromOptions({ pcr: null, support: [level(90, 5)], resistance: [level(110, 5)], totalPutOI: 10, totalCallOI: 10 }, candles)).toEqual([]);
+  });
+  it('returns nothing when there are no support or resistance strikes (no invented levels)', () => {
+    expect(generateSignalsFromOptions({ pcr: 1.1, support: [], resistance: [level(110, 5)], totalPutOI: 10, totalCallOI: 10 }, candles)).toEqual([]);
+  });
+  it('keeps a real PCR of 0.5 as 0.5 and uses only chain strikes', () => {
+    const out = generateSignalsFromOptions({ pcr: 0.5, support: [level(90, 5)], resistance: [level(110, 5)], totalPutOI: 10, totalCallOI: 10 }, candles);
+    expect(out[0].pcr).toBe(0.5);
+    expect(out[0].s1).toBe('90.00');
+    expect(out[0].s2).toBe('—');
+  });
+});

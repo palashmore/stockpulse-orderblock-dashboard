@@ -143,7 +143,9 @@ export function generateSignalsFromOptions(optionsData, candles) {
   const currentPrice = optionsData.underlyingValue || candles[candles.length - 1].close;
   const supports = optionsData.support || [];
   const resistances = optionsData.resistance || [];
-  const pcr = optionsData.pcr || 1;
+  // PCR and the strike levels must come from the chain: no neutral default, no invented +/-3% levels
+  const pcr = optionsData.pcr;
+  if (!Number.isFinite(pcr) || supports.length === 0 || resistances.length === 0) return [];
 
   // Sparkline is the actual recent closing prices
   const sparkData = candles.slice(-20).map(c => c.close);
@@ -156,10 +158,10 @@ export function generateSignalsFromOptions(optionsData, candles) {
       label: 'LONG BUILD-UP',
       oi: `+${((sup.oi / (optionsData.totalPutOI || 1)) * 100).toFixed(1)}%`,
       price: currentPrice.toFixed(2),
-      s1: supports[0]?.strike?.toFixed(2) || (currentPrice * 0.97).toFixed(2),
-      s2: supports[1]?.strike?.toFixed(2) || (currentPrice * 0.94).toFixed(2),
-      r1: resistances[0]?.strike?.toFixed(2) || (currentPrice * 1.03).toFixed(2),
-      r2: resistances[1]?.strike?.toFixed(2) || (currentPrice * 1.06).toFixed(2),
+      s1: supports[0].strike.toFixed(2),
+      s2: supports[1]?.strike?.toFixed(2) ?? '—',
+      r1: resistances[0].strike.toFixed(2),
+      r2: resistances[1]?.strike?.toFixed(2) ?? '—',
       zone: currentPrice.toFixed(2),
       risk: pcr > 1.2 ? 'LOW' : pcr > 0.8 ? 'MEDIUM' : 'HIGH',
       strength: Math.min(95, Math.floor(50 + pcr * 25)),
@@ -178,10 +180,10 @@ export function generateSignalsFromOptions(optionsData, candles) {
       label: 'SHORT BUILD-UP',
       oi: `-${((res.oi / (optionsData.totalCallOI || 1)) * 100).toFixed(1)}%`,
       price: currentPrice.toFixed(2),
-      s1: supports[0]?.strike?.toFixed(2) || (currentPrice * 0.97).toFixed(2),
-      s2: supports[1]?.strike?.toFixed(2) || (currentPrice * 0.94).toFixed(2),
-      r1: resistances[0]?.strike?.toFixed(2) || (currentPrice * 1.03).toFixed(2),
-      r2: resistances[1]?.strike?.toFixed(2) || (currentPrice * 1.06).toFixed(2),
+      s1: supports[0].strike.toFixed(2),
+      s2: supports[1]?.strike?.toFixed(2) ?? '—',
+      r1: resistances[0].strike.toFixed(2),
+      r2: resistances[1]?.strike?.toFixed(2) ?? '—',
       zone: currentPrice.toFixed(2),
       risk: pcr < 0.8 ? 'LOW' : pcr < 1.2 ? 'MEDIUM' : 'HIGH',
       strength: Math.min(95, Math.floor(50 + (1 / Math.max(0.1, pcr)) * 25)),
