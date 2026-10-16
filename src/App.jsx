@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useRefresh } from './hooks/useRefresh';
+import Freshness from './components/Freshness';
 import Sidebar from './components/Sidebar';
 import SearchBar from './components/SearchBar';
 import StockChart, { TimeframeBar } from './components/StockChart';
@@ -327,7 +328,7 @@ export default function App() {
           backgroundColor: '#0d1117',
         }}
       >
-        {optionsData ? <OIAnalysisPanel optionsData={optionsData} priceChange={priceChange} /> : <MultiTimeframePanel symbol={selectedStock.symbol} demoMode={demoMode} />}
+        {optionsData ? <><div className="px-3 py-1 text-right"><Freshness lastSuccessAt={lastUpdate ? lastUpdate.getTime() : null} failures={refreshFailed ? 1 : 0} /></div><OIAnalysisPanel optionsData={optionsData} priceChange={priceChange} /></> : <MultiTimeframePanel symbol={selectedStock.symbol} demoMode={demoMode} />}
       </div>
 
       {/* Right: option-based signal cards, shown only when there are signals to show */}

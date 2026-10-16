@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Maximize2, Minimize2, RefreshCw, Layers, Grid, Link2, Unlink } from 'lucide-react';
+import { Maximize2, Minimize2, RefreshCw, Grid, Link2 } from 'lucide-react';
 import TradingChart from './TradingChart';
 import { fetchHistory, searchStocks } from '../services/api';
+import { useRefresh } from '../hooks/useRefresh';
+import Freshness from './Freshness';
 import { TIMEFRAMES } from '../data/timeframes';
 import { aggregateCandles } from '../data/timeframes';
 import { loadLayout, saveLayout, cellTimeframe, setCellSymbol, setCellTimeframe, COUNTS, cellSymbol } from '../data/multiChart';
@@ -78,22 +80,18 @@ function SymbolPicker({ value, onPick, quick }) {
 function ChartCell({ symbol, frame, onSymbol, onFrame, linked, expanded, onExpand, quick, link, linkId }) {
   const request = `${symbol}|${frame.id}`;
   const [state, setState] = useState({ request: '', status: 'loading', data: null, error: '' });
-  const [reloadTick, setReloadTick] = useState(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchHistory(symbol, frame.range, frame.interval, { force: reloadTick > 0 }).then((h) => {
-      if (cancelled) return;
-      setState(
-        h
-          ? { request, status: 'ready', data: h, error: '' }
-          : { request, status: 'error', data: null, error: 'No candle data available for this symbol and timeframe' }
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [request, symbol, frame.range, frame.interval, reloadTick]);
+  // Each cell refreshes on the shared 60 s scheduler. The chart updates in place (zoom is kept); a failed
+  // refresh keeps the last good candles and only a cell that never loaded shows the error.
+  const feed = useRefresh(`multichart:${request}`, async ({ force }) => {
+    const h = await fetchHistory(symbol, frame.range, frame.interval, { force });
+    setState((prev) => (h
+      ? { request, status: 'ready', data: h, error: '' }
+      : prev.request === request && prev.data
+        ? prev
+        : { request, status: 'error', data: null, error: 'No candle data available for this symbol and timeframe' }));
+    return h;
+  });
 
   const current = state.request === request;
   const data = current ? state.data : null;
@@ -137,13 +135,14 @@ function ChartCell({ symbol, frame, onSymbol, onFrame, linked, expanded, onExpan
           </span>
         )}
         <div className="flex-1" />
+        <Freshness lastSuccessAt={feed.lastSuccessAt} failures={feed.failures} />
         {meta && (
           <span className="text-[10px] font-medium" style={{ color: meta.color }} title={meta.description}>
             {meta.label}
           </span>
         )}
         <button
-          onClick={() => setReloadTick((t) => t + 1)}
+          onClick={() => feed.refresh()}
           aria-label={`Reload ${symbol}`}
           className="p-1 rounded text-gray-400 hover:text-white hover:bg-white/5 cursor-pointer"
         >
@@ -168,7 +167,7 @@ function ChartCell({ symbol, frame, onSymbol, onFrame, linked, expanded, onExpan
         {!loading && state.status === 'error' && (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-xs text-center text-gray-500">
             <p style={{ color: '#ff1744' }}>{state.error}</p>
-            <button onClick={() => setReloadTick((t) => t + 1)} className="mt-2 underline cursor-pointer font-medium" style={{ color: '#00e5ff' }}>
+            <button onClick={() => feed.refresh()} className="mt-2 underline cursor-pointer font-medium" style={{ color: '#00e5ff' }}>
               Retry Fetch
             </button>
           </div>

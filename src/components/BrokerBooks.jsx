@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, BookOpen, Clock, Activity, DollarSign, ChevronDown, ChevronRight, Layers } from 'lucide-react';
 import { fetchBroker, API_BASE } from '../services/api';
+import { useRefresh } from '../hooks/useRefresh';
 import { loadSettings } from '../data/settings';
 
 const GREEN = '#00e676';
@@ -440,24 +441,19 @@ function FundsMargin({ data }) {
 
 function Depth({ symbol }) {
   const [d, setD] = useState(null);
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const r = await fetch(`${API_BASE}/depth/${encodeURIComponent(symbol)}`, { cache: 'no-store' });
-        const j = await r.json();
-        if (!cancelled) setD(j);
-      } catch {
-        if (!cancelled) setD({ available: false, reason: 'Could not reach server depth endpoint' });
-      }
-    };
-    poll();
-    const timer = setInterval(poll, 3000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [symbol]);
+  // Live L2 depth: 3 s on the shared scheduler (it pauses while the tab is hidden and backs off on failure)
+  useRefresh(`depth:${symbol}`, async () => {
+    try {
+      const r = await fetch(`${API_BASE}/depth/${encodeURIComponent(symbol)}`, { cache: 'no-store' });
+      const j = await r.json();
+      setD(j);
+      return j;
+    } catch {
+      setD({ available: false, reason: 'Could not reach server depth endpoint' });
+      return null;
+    }
+  }, true, 3000);
+
 
   return (
     <div className="px-4 py-3" style={{ backgroundColor: '#0d1117' }}>

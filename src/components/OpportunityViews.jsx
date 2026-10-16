@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Star } from 'lucide-react';
 import { rankOpportunities, SCORE_CRITERIA } from '../data/opportunities';
 import { liquidityList, depthStats } from '../data/orderFlow';
 import { DEFAULT_FILTERS, PRESETS, presetFilters, loadSavedFilters } from '../data/screenFilters';
 import { fetchDepths } from '../services/api';
+import { useRefresh } from '../hooks/useRefresh';
 
 const GREEN = '#00e676';
 const RED = '#ff1744';
@@ -143,17 +144,12 @@ export function Opportunities({ scan, watch, onOpen, lastSession }) {
 function useDepths(symbols, enabled) {
   const key = symbols.join(',');
   const [state, setState] = useState({ key: '', depths: [], failed: false });
-  useEffect(() => {
-    if (!enabled || !key) return undefined;
-    let cancelled = false;
-    const poll = async () => {
-      const r = await fetchDepths(key.split(','));
-      if (!cancelled) setState(r ? { key, depths: r.depths, failed: false } : (s) => ({ ...s, key, failed: true }));
-    };
-    poll();
-    const timer = setInterval(poll, 3000);
-    return () => { cancelled = true; clearInterval(timer); };
-  }, [enabled, key]);
+  useRefresh(`depths:${key}`, async () => {
+    const r = await fetchDepths(key.split(','));
+    setState(r ? { key, depths: r.depths, failed: false } : (st) => ({ ...st, key, failed: true }));
+    return r;
+  }, enabled && Boolean(key), 3000);
+
   return state.key === key ? state : { key, depths: [], failed: false };
 }
 

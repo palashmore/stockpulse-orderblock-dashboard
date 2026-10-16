@@ -135,3 +135,21 @@ describe('refresh coordinator', () => {
     await flush();
   });
 });
+
+describe('refresh coordinator fast resources', () => {
+  it('ticks fast enough for a 3 s resource while sharing the one timer', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const c = createRefreshCoordinator({ intervalMs: 60000, tickMs: 5000, random: () => 0.5, isVisible: () => true });
+    const slow = vi.fn().mockResolvedValue(1);
+    const fast = vi.fn().mockResolvedValue(1);
+    c.subscribe('slow', slow, () => {});
+    c.subscribe('depth', fast, () => {}, { intervalMs: 3000 });
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(fast.mock.calls.length).toBeGreaterThanOrEqual(9);
+    expect(slow).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(1);
+    c.dispose();
+    vi.useRealTimers();
+  });
+});

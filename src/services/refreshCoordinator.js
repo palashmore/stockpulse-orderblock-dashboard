@@ -107,8 +107,21 @@ export function createRefreshCoordinator(options = {}) {
     }
   }
 
+  let timerMs = 0;
+  // The tick is the configured one, or the shortest subscribed interval if that is shorter (live depth runs at 3 s)
+  function wantedTick() {
+    let ms = cfg.tickMs;
+    for (const e of entries.values()) ms = Math.min(ms, Math.max(500, e.intervalMs));
+    return ms;
+  }
+
   function ensureTimer() {
-    if (timer === null && entries.size > 0) timer = setInterval(tick, cfg.tickMs);
+    if (entries.size === 0) return;
+    const ms = wantedTick();
+    if (timer !== null && ms === timerMs) return;
+    if (timer !== null) clearInterval(timer);
+    timerMs = ms;
+    timer = setInterval(tick, ms);
   }
 
   function stopTimerIfIdle() {

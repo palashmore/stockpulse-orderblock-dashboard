@@ -6,6 +6,7 @@ import { loadCosts, saveCosts, setCost } from '../data/costBasis';
 import { usePortfolioAnalysis } from '../hooks/usePortfolioAnalysis';
 import { ReviewView, AllocationView, CorrelationView } from './PortfolioReview';
 import PortfolioAdvanced from './PortfolioAdvanced';
+import Freshness from './Freshness';
 
 const GREEN = '#00e676';
 const RED = '#ff1744';
@@ -99,6 +100,7 @@ export default function PortfolioPanel({ onSelectStock }) {
             <RefreshCw size={12} className={status === 'loading' ? 'animate-spin' : ''} />
             {status === 'loading' ? 'Syncing…' : 'Sync Portfolio'}
           </button>
+          {data?.fetchedAt && <Freshness lastSuccessAt={new Date(data.fetchedAt).getTime()} failures={status === 'error' ? 1 : 0} intervalMs={5 * 60000} />}
         </div>
       </div>
 
